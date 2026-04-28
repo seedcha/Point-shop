@@ -4,15 +4,21 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-const mockDB = [
-  { name: "김학생", phone: "12345678", point: 15000 },
-  { name: "이코딩", phone: "11112222", point: 8000 },
-  { name: "박개발", phone: "87654321", point: 120400 },
-];
+type LoginStudent = {
+  id: string;
+  name: string;
+  parent_phone: string;
+  grade: string;
+  points: number;
+};
 
 export default function LobbyPage() {
   const [phone, setPhone] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [studentChoices, setStudentChoices] = useState<LoginStudent[]>([]);
   const router = useRouter();
+
+  const formatPhone = (value: string) => value.replace(/\D/g, "").slice(0, 8);
 
   const handleNumberClick = (num: number) => {
     if (phone.length < 8) {
@@ -20,32 +26,55 @@ export default function LobbyPage() {
     }
   };
 
+  const handlePhoneChange = (value: string) => {
+    setPhone(formatPhone(value));
+  };
+
   const handleDelete = () => {
     setPhone(phone.slice(0, -1));
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (phone.length !== 8) {
       alert("전화번호 8자리를 모두 입력해주세요.");
       return;
     }
 
-    const user = mockDB.find((student) => student.phone === phone);
+    setIsSubmitting(true);
 
-    if (!user) {
-      alert("등록되지 않은 전화번호입니다. 다시 확인해주세요!");
+    const response = await fetch("/api/student/login", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ phone }),
+    });
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      alert(payload?.error ?? "등록되지 않은 전화번호입니다. 다시 확인해주세요!");
       setPhone("");
+      setIsSubmitting(false);
       return;
     }
 
-    router.push(`/dashboard?name=${user.name}&point=${user.point}&phone=${user.phone}`);
+    const payload = (await response.json()) as { students: LoginStudent[] };
+    const students = payload.students ?? [];
+
+    if (students.length === 1) {
+      router.push(`/dashboard?studentId=${students[0].id}`);
+      return;
+    }
+
+    setStudentChoices(students);
+    setIsSubmitting(false);
   };
 
   return (
-    <main className="flex min-h-screen flex-row items-center justify-center gap-8 bg-slate-100 p-6">
+    <main className="relative flex min-h-screen flex-row items-center justify-center gap-8 bg-slate-100 p-6">
       <Link
         href="/admin"
-        className="fixed right-8 top-8 z-20 rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-bold text-slate-700 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600"
+        className="absolute right-6 top-6 rounded-2xl bg-white px-5 py-3 text-sm font-black text-slate-500 shadow-sm transition hover:bg-blue-600 hover:text-white"
       >
         관리자
       </Link>
@@ -97,15 +126,25 @@ export default function LobbyPage() {
         <p className="mb-8 text-sm text-gray-500">학부모 전화번호 뒷자리를 입력해주세요</p>
 
         <div className="flex w-full flex-col items-center gap-8">
-          <div className="flex w-full items-center justify-center gap-4 rounded-2xl border border-slate-200 bg-slate-50 px-6 py-4">
-            <span className="text-4xl font-extrabold tracking-wider text-gray-800">010</span>
-            <span className="text-4xl font-extrabold text-gray-400">-</span>
+          <div className="flex w-full items-end justify-center gap-4 rounded-3xl bg-slate-100/80 px-6 py-5 shadow-inner">
+            <span className="pb-1 text-4xl font-black tracking-wider text-slate-900">010</span>
+            <span className="pb-1 text-4xl font-black text-slate-400">-</span>
             <input
-              type="text"
+              type="tel"
               value={phone}
-              readOnly
-              placeholder="--------"
-              className="min-w-0 w-72 max-w-full bg-transparent px-3 text-center text-4xl font-extrabold tracking-wider text-gray-800 placeholder:text-gray-300 focus:outline-none"
+              onChange={(event) => handlePhoneChange(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  handleSubmit();
+                }
+              }}
+              inputMode="numeric"
+              autoComplete="tel"
+              autoFocus
+              maxLength={8}
+              aria-label="학부모 전화번호 뒷자리"
+              placeholder="12345678"
+              className="h-14 w-72 min-w-0 border-0 border-b-2 border-slate-300 bg-transparent px-1 text-center text-4xl font-black leading-none tracking-widest text-slate-900 caret-blue-600 outline-none transition placeholder:text-slate-300 focus:border-blue-500"
             />
           </div>
 
@@ -133,13 +172,53 @@ export default function LobbyPage() {
             </button>
             <button
               onClick={handleSubmit}
+              disabled={isSubmitting}
               className="h-20 w-20 rounded-2xl bg-blue-600 text-xl font-bold text-white shadow-sm transition-all hover:bg-blue-700 active:scale-95 active:bg-blue-800"
             >
-              완료
+              {isSubmitting ? "..." : "완료"}
             </button>
           </div>
         </div>
       </section>
+
+      {studentChoices.length > 1 && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-slate-950/40 p-6">
+          <section className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl">
+            <div className="mb-5">
+              <h2 className="text-2xl font-black text-slate-900">학생을 선택해주세요</h2>
+              <p className="mt-1 text-sm font-medium text-slate-500">
+                같은 학부모 연락처로 등록된 학생이 있어요.
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              {studentChoices.map((student) => (
+                <button
+                  key={student.id}
+                  onClick={() => router.push(`/dashboard?studentId=${student.id}`)}
+                  className="flex w-full items-center justify-between rounded-2xl bg-slate-50 px-5 py-4 text-left transition hover:bg-blue-50"
+                >
+                  <span>
+                    <span className="block text-lg font-black text-slate-900">{student.name}</span>
+                    <span className="text-sm font-bold text-slate-400">{student.grade}</span>
+                  </span>
+                  <span className="font-black text-blue-600">{student.points.toLocaleString()} DP</span>
+                </button>
+              ))}
+            </div>
+
+            <button
+              onClick={() => {
+                setStudentChoices([]);
+                setPhone("");
+              }}
+              className="mt-5 w-full rounded-2xl bg-slate-100 py-3 font-bold text-slate-500 transition hover:bg-slate-200"
+            >
+              다시 입력
+            </button>
+          </section>
+        </div>
+      )}
     </main>
   );
 }
