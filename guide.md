@@ -16,7 +16,6 @@ npx supabase link --project-ref YOUR_PROJECT_REF
 ```
 New-Item -ItemType Directory -Force supabase\migrations
 npx supabase migration new initial
-Get-ChildItem supabase\migrations
 ```
 생성된 파일명 확인 후 복사하여 사용합니다.
 ```
