@@ -126,7 +126,7 @@ insert into departments (name) values
 on conflict (name) do nothing;
 
 insert into admin_profiles (manager_name, auth_user_id, role, department_id) values
-('차윤빈', '80c6855b-2b45-4f8b-be7f-1e6b0b8b30e5', 'master', (select id from departments where name = '판교'))
+('관리자', '80c6855b-2b45-4f8b-be7f-1e6b0b8b30e5', 'master', (select id from departments where name = '판교'))
 on conflict (auth_user_id) do nothing;
 
 commit;
