@@ -7,9 +7,9 @@ create extension if not exists pgcrypto;
 
 -- 2. department 테이블
 create table departments (
-    id uuid primary key default gen_random_uuid(), -- 부서 ID
-    name varchar(50) not null unique, -- 부서 이름
-    is_active boolean not null default true, -- 부서 활성 여부
+    id uuid primary key default gen_random_uuid(), -- 가맹점 ID
+    name varchar(50) not null unique, -- 가맹점 이름
+    is_active boolean not null default true, -- 가맹점 활성 여부
     created_at timestamptz not null default now(), -- 생성 시간
     updated_at timestamptz not null default now() -- 업데이트 시간
 );
@@ -21,7 +21,7 @@ create table admin_profiles (
     auth_user_id uuid not null unique references auth.users(id) on delete cascade,
     role varchar(20) not null default 'manager'
         check (role in ('master', 'manager')), -- 관리자 역할 (마스터 또는 매니저)
-    department_id uuid not null references departments(id) on delete restrict, -- 관리자 부서/소속
+    department_id uuid not null references departments(id) on delete restrict, -- 관리자 가맹점
     is_active boolean not null default true, -- 관리자 활성 여부
     created_at timestamptz not null default now(), -- 생성 시간
     updated_at timestamptz not null default now() -- 업데이트 시간

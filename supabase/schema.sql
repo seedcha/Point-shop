@@ -7,9 +7,9 @@ create extension if not exists pgcrypto;
 
 -- department 테이블
 create table departments (
-    id uuid primary key default gen_random_uuid(), -- 부서 ID
-    name varchar(50) not null unique, -- 부서 이름
-    is_active boolean not null default true, -- 부서 활성 여부
+    id uuid primary key default gen_random_uuid(), -- 가맹점 ID
+    name varchar(50) not null unique, -- 가맹점 이름
+    is_active boolean not null default true, -- 가맹점 활성 여부
     created_at timestamptz not null default now(), -- 생성 시간
     updated_at timestamptz not null default now() -- 업데이트 시간
 );
@@ -20,9 +20,9 @@ create table admin_profiles (
     login_id varchar(50) not null unique, -- 로그인 시 사용하는 ID
     manager_name varchar(50) not null, -- 관리자 이름
     auth_user_id uuid not null unique references auth.users(id) on delete cascade,
-    role varchar(20) not null default 'manager'
-        check (role in ('master', 'manager')), -- 관리자 역할 (마스터 또는 매니저)
-    department_id uuid not null references departments(id) on delete restrict, -- 관리자 부서/소속
+    role varchar(20) not null default 'staff'
+        check (role in ('master', 'manager','staff')), -- 관리자 역할 (마스터 또는 매니저)
+    department_id uuid not null references departments(id) on delete restrict, -- 관리자 가맹점
     is_active boolean not null default true, -- 관리자 활성 여부
     created_at timestamptz not null default now(), -- 생성 시간
     updated_at timestamptz not null default now() -- 업데이트 시간
@@ -56,8 +56,18 @@ create table timetable (
 -- 학생 테이블
 create table students (
     id uuid primary key default gen_random_uuid(), -- 학생 ID
+    department_id uuid not null references departments(id) on delete restrict, -- 학생 가맹점
+    teacher_id uuid references admin_profiles(id) on delete set null, -- 담당 강사
     parent_phone varchar(20) not null, -- 학부모 전화번호
     name varchar(50) not null, -- 학생 이름
+    grade varchar(20) not null
+        check (grade in (
+            '3세', '4세', '5세', '6세', '7세',
+            '초1', '초2', '초3', '초4', '초5', '초6',
+            '중1', '중2', '중3',
+            '고1', '고2', '고3',
+            '성인'
+        )), -- 학생 학년
     points int not null default 0, -- 학생이 보유한 포인트
     is_active boolean not null default true, -- 학생 활성 여부
     created_at timestamptz not null default now(), -- 생성 시간
@@ -76,7 +86,7 @@ create table student_classes (
 -- 상품 테이블
 create table products (
     id uuid primary key default gen_random_uuid(), -- 상품 ID
-    department_id uuid not null references departments(id) on delete cascade, -- 상품 소속 부서
+    department_id uuid not null references departments(id) on delete cascade, -- 상품 가맹점
     name varchar(200) not null, -- 상품 이름
     description text, -- 상품 설명
     category varchar(50), -- 상품 카테고리
@@ -99,13 +109,14 @@ create table purchases (
     dp_spent int not null check (dp_spent >= 0), -- 총 사용 포인트
     status varchar(20) not null default 'completed'
         check (status in ('completed', 'cancelled', 'refunded')), -- 구매 상태
-    created_at timestamptz not null default now() -- 생성 시간
+    created_at timestamptz not null default now(), -- 생성 시간
     updated_at timestamptz not null default now() -- 업데이트 시간(구매 취소 등)
 );
 
 -- 포인트 이력
 create table point_transactions (
     id uuid primary key default gen_random_uuid(), -- 포인트 이력 ID
+    department_id uuid references departments(id) on delete restrict, -- 거래 가맹점
     student_id uuid not null references students(id) on delete cascade, -- 학생 ID
     purchase_id uuid references purchases(id) on delete set null, -- 연결된 구매 ID
     amount int not null, -- 포인트 변화량 (증가: 양수, 감소: 음수)
@@ -138,11 +149,11 @@ create table announcements (
 );
 
 -- indexes for performance optimization
--- 관리자가 로그인했을 때 자기 부서 기준 조회
+-- 관리자가 로그인했을 때 자기 가맹점 기준 조회
 create index idx_admin_profiles_department_id
 on admin_profiles(department_id);
 
--- 부서별 시간표 조회
+-- 가맹점별 시간표 조회
 create index idx_timetable_department_id
 on timetable(department_id);
 
@@ -154,7 +165,7 @@ on student_classes(class_id);
 create index idx_student_classes_student_id
 on student_classes(student_id);
 
--- 부서별 상품 필터링
+-- 가맹점별 상품 필터링
 create index idx_products_department_id
 on products(department_id);
 
@@ -162,13 +173,28 @@ on products(department_id);
 create index idx_point_transactions_student_id
 on point_transactions(student_id);
 
+create index idx_students_department_id
+on students(department_id);
+
+create index idx_students_teacher_id
+on students(teacher_id);
+
+create index idx_point_transactions_department_id
+on point_transactions(department_id);
+
+create index idx_point_transactions_department_type
+on point_transactions(department_id, transaction_type);
+
+create index idx_point_transactions_adjusted_by
+on point_transactions(adjusted_by);
+
 -- Initial data seeding
 insert into departments (name) values
 ('대치'), ('판교')
 on conflict (name) do nothing;
 
 insert into admin_profiles (manager_name, login_id, auth_user_id, role, department_id) values
-('차윤빈', 'seed', '80c6855b-2b45-4f8b-be7f-1e6b0b8b30e5', 'master', (select id from departments where name = '판교'))
+('차윤빈', 'seed', '4dc58808-03a9-4d51-8d0d-c27af342b908', 'master', (select id from departments where name = '판교'))
 on conflict (auth_user_id) do nothing;
 
 commit;
