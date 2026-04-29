@@ -105,7 +105,7 @@ export async function POST(request: NextRequest) {
   const { data, error } = await supabaseAdmin
     .from("students")
     .insert(students)
-    .select("id, department_id, teacher_id, parent_phone, name, grade, points, is_active, created_at");
+    .select("id, department_id, teacher_id, parent_phone, name, grade, points, note, is_active, created_at");
 
   if (error) {
     return NextResponse.json({ error: "학생을 추가하지 못했습니다." }, { status: 500 });

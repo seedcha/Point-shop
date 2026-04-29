@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
-const NOTE_PREFIX = "student_note:";
-
 async function getAdminProfile(request: NextRequest) {
   const authorization = request.headers.get("authorization");
   const token = authorization?.startsWith("Bearer ") ? authorization.slice(7) : null;
@@ -39,19 +37,23 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: admin.error }, { status: admin.status });
   }
 
-  const { data, error } = await supabaseAdmin
-    .from("admin_settings")
-    .select("setting_key, value")
-    .like("setting_key", `${NOTE_PREFIX}%`);
+  const requestedDepartmentId = new URL(request.url).searchParams.get("departmentId")?.trim();
+  let query = supabaseAdmin.from("students").select("id, note");
+
+  if (admin.profile.role !== "master") {
+    query = query.eq("department_id", admin.profile.department_id);
+  } else if (requestedDepartmentId) {
+    query = query.eq("department_id", requestedDepartmentId);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     return NextResponse.json({ error: "비고를 불러오지 못했습니다." }, { status: 500 });
   }
 
   return NextResponse.json({
-    notes: Object.fromEntries(
-      (data ?? []).map((row) => [row.setting_key.replace(NOTE_PREFIX, ""), row.value])
-    ),
+    notes: Object.fromEntries((data ?? []).map((student) => [student.id, student.note ?? ""])),
   });
 }
 
@@ -62,12 +64,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: admin.error }, { status: admin.status });
   }
 
-  const body = (await request.json()) as { studentId?: string; note?: string };
+  const body = (await request.json()) as { studentId?: string; note?: string; departmentId?: string };
   const studentId = body.studentId?.trim();
   const note = body.note?.trim() ?? "";
+  const requestedDepartmentId = body.departmentId?.trim();
 
   if (!studentId) {
     return NextResponse.json({ error: "학생을 선택해주세요." }, { status: 400 });
+  }
+
+  const targetDepartmentId =
+    admin.profile.role === "master" ? requestedDepartmentId : admin.profile.department_id;
+
+  if (!targetDepartmentId) {
+    return NextResponse.json({ error: "가맹점을 선택해주세요." }, { status: 400 });
   }
 
   const { data: student, error: studentError } = await supabaseAdmin
@@ -76,16 +86,15 @@ export async function POST(request: NextRequest) {
     .eq("id", studentId)
     .single();
 
-  if (studentError || !student || student.department_id !== admin.profile.department_id) {
+  if (studentError || !student || student.department_id !== targetDepartmentId) {
     return NextResponse.json({ error: "학생을 찾을 수 없습니다." }, { status: 404 });
   }
 
-  const { error } = await supabaseAdmin.from("admin_settings").upsert({
-    setting_key: `${NOTE_PREFIX}${studentId}`,
-    value: note,
-    updated_by: admin.profile.id,
-    updated_at: new Date().toISOString(),
-  });
+  const { error } = await supabaseAdmin
+    .from("students")
+    .update({ note, updated_at: new Date().toISOString() })
+    .eq("id", studentId)
+    .eq("department_id", targetDepartmentId);
 
   if (error) {
     return NextResponse.json({ error: "비고를 저장하지 못했습니다." }, { status: 500 });
