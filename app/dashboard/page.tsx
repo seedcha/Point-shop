@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 
 type StudentProfile = {
   id: string;
@@ -68,6 +68,14 @@ function formatKoreaDate(value?: string) {
 }
 
 export default function Dashboard() {
+  return (
+    <Suspense fallback={<DashboardFallback />}>
+      <DashboardContent />
+    </Suspense>
+  );
+}
+
+function DashboardContent() {
   const searchParams = useSearchParams();
   const studentId = searchParams.get("studentId");
   const [activeMenu, setActiveMenu] = useState<"mypage" | "shop">("mypage");
@@ -445,6 +453,16 @@ export default function Dashboard() {
           </section>
         </div>
       )}
+    </div>
+  );
+}
+
+function DashboardFallback() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-slate-50">
+      <div className="rounded-2xl bg-white px-6 py-4 font-bold text-slate-500 shadow-sm">
+        불러오는 중
+      </div>
     </div>
   );
 }
