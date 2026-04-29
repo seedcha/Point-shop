@@ -276,6 +276,7 @@ export default function AdminPage() {
   const [productImageUrl, setProductImageUrl] = useState("");
   const [productName, setProductName] = useState("");
   const [productPrice, setProductPrice] = useState("");
+  const [productStock, setProductStock] = useState("");
   const [isSavingProduct, setIsSavingProduct] = useState(false);
   const [pinSettings, setPinSettings] = useState<Record<string, string>>({});
   const [savedPinDepartments, setSavedPinDepartments] = useState<Set<string>>(new Set());
@@ -1039,6 +1040,7 @@ export default function AdminPage() {
     setProductImageUrl("");
     setProductName("");
     setProductPrice("");
+    setProductStock("999");
     setIsProductModalOpen(true);
   };
 
@@ -1049,6 +1051,7 @@ export default function AdminPage() {
     setProductImageUrl(product.image_url ?? "");
     setProductName(product.name);
     setProductPrice(String(product.price_dp));
+    setProductStock(String(product.stock));
     setIsProductModalOpen(true);
   };
 
@@ -1059,6 +1062,7 @@ export default function AdminPage() {
     setProductImageUrl("");
     setProductName("");
     setProductPrice("");
+    setProductStock("");
   };
 
   const handleProductImageChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -1093,6 +1097,7 @@ export default function AdminPage() {
     }
 
     const priceDp = Number(productPrice);
+    const stock = Number(productStock);
 
     if (!productName.trim()) {
       setDataMessage("상품 이름을 입력해주세요.");
@@ -1101,6 +1106,11 @@ export default function AdminPage() {
 
     if (!Number.isInteger(priceDp) || priceDp < 0) {
       setDataMessage("상품 가격은 0 이상의 숫자로 입력해주세요.");
+      return;
+    }
+
+    if (!Number.isInteger(stock) || stock < 0) {
+      setDataMessage("상품 재고는 0 이상의 숫자로 입력해주세요.");
       return;
     }
 
@@ -1121,6 +1131,7 @@ export default function AdminPage() {
         imageUrl: productImageUrl,
         name: productName,
         priceDp,
+        stock,
       }),
     });
 
@@ -2172,6 +2183,7 @@ export default function AdminPage() {
                 productImageUrl={productImageUrl}
                 productName={productName}
                 productPrice={productPrice}
+                productStock={productStock}
                 isSavingProduct={isSavingProduct}
                 onCreateProduct={openCreateProductModal}
                 onEditProduct={openEditProductModal}
@@ -2180,6 +2192,7 @@ export default function AdminPage() {
                 onProductImageChange={handleProductImageChange}
                 onProductNameChange={setProductName}
                 onProductPriceChange={setProductPrice}
+                onProductStockChange={setProductStock}
                 onSaveProduct={handleSaveProduct}
 	            />
 		          ) : activeView === "departments" ? (
@@ -3264,6 +3277,7 @@ function ShopManagementView({
   productImageUrl,
   productName,
   productPrice,
+  productStock,
   isSavingProduct,
   onCreateProduct,
   onEditProduct,
@@ -3272,6 +3286,7 @@ function ShopManagementView({
   onProductImageChange,
   onProductNameChange,
   onProductPriceChange,
+  onProductStockChange,
   onSaveProduct,
 }: {
   products: Product[];
@@ -3283,6 +3298,7 @@ function ShopManagementView({
   productImageUrl: string;
   productName: string;
   productPrice: string;
+  productStock: string;
   isSavingProduct: boolean;
   onCreateProduct: () => void;
   onEditProduct: (product: Product) => void;
@@ -3291,6 +3307,7 @@ function ShopManagementView({
   onProductImageChange: (event: ChangeEvent<HTMLInputElement>) => void;
   onProductNameChange: (name: string) => void;
   onProductPriceChange: (price: string) => void;
+  onProductStockChange: (stock: string) => void;
   onSaveProduct: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   return (
@@ -3306,13 +3323,14 @@ function ShopManagementView({
           </button>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] text-left text-sm">
+          <table className="w-full min-w-[820px] text-left text-sm">
             <thead className="bg-slate-50 text-xs font-black text-slate-500">
               <tr>
                 <th className="px-5 py-3">상품 아이콘</th>
                 <th className="px-5 py-3">상품 이름</th>
                 {showDepartment && <th className="px-5 py-3">가맹점</th>}
                 <th className="px-5 py-3">상품 가격</th>
+                <th className="px-5 py-3">상품 재고</th>
                 <th className="px-5 py-3">상품 수정</th>
               </tr>
             </thead>
@@ -3340,6 +3358,9 @@ function ShopManagementView({
                   <td className="px-5 py-4 font-black text-blue-600">
                     {product.price_dp.toLocaleString()} DP
                   </td>
+                  <td className="px-5 py-4 font-black text-slate-700">
+                    {product.stock.toLocaleString()}개
+                  </td>
                   <td className="px-5 py-4">
                     <button
                       onClick={() => onEditProduct(product)}
@@ -3353,7 +3374,7 @@ function ShopManagementView({
               {!products.length && (
                 <tr>
                   <td
-                    colSpan={showDepartment ? 5 : 4}
+                    colSpan={showDepartment ? 6 : 5}
                     className="px-5 py-12 text-center font-bold text-slate-400"
                   >
                     아직 상품이 없습니다.
@@ -3430,6 +3451,17 @@ function ShopManagementView({
                   required
                   value={productPrice}
                   onChange={(event) => onProductPriceChange(event.target.value.replace(/\D/g, ""))}
+                  className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-bold outline-none focus:border-blue-400 focus:bg-white"
+                />
+              </label>
+              <label className="block">
+                <span className="text-sm font-bold text-slate-600">상품 재고</span>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  required
+                  value={productStock}
+                  onChange={(event) => onProductStockChange(event.target.value.replace(/\D/g, ""))}
                   className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-bold outline-none focus:border-blue-400 focus:bg-white"
                 />
               </label>

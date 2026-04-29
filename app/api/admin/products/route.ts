@@ -48,6 +48,7 @@ function parseProductBody(body: {
   imageUrl?: string | null;
   name?: string;
   priceDp?: number | string;
+  stock?: number | string;
 }) {
   const id = body.id?.trim();
   const departmentId = body.departmentId?.trim();
@@ -55,6 +56,7 @@ function parseProductBody(body: {
   const imageUrl = body.imageUrl?.trim() || null;
   const name = body.name?.trim();
   const priceDp = Number(body.priceDp);
+  const stock = Number(body.stock);
 
   if (!name || name.length > 200) {
     return { error: "상품 이름은 1~200자로 입력해주세요." };
@@ -64,7 +66,11 @@ function parseProductBody(body: {
     return { error: "상품 가격은 0 이상의 숫자로 입력해주세요." };
   }
 
-  return { id, departmentId, emoji, imageUrl, name, priceDp };
+  if (!Number.isInteger(stock) || stock < 0) {
+    return { error: "상품 재고는 0 이상의 숫자로 입력해주세요." };
+  }
+
+  return { id, departmentId, emoji, imageUrl, name, priceDp, stock };
 }
 
 export async function POST(request: NextRequest) {
@@ -91,7 +97,7 @@ export async function POST(request: NextRequest) {
       price_dp: parsed.priceDp,
       emoji: parsed.emoji,
       image_url: parsed.imageUrl,
-      stock: 999,
+      stock: parsed.stock,
       is_active: true,
     })
     .select("id, department_id, name, category, price_dp, stock, is_active, emoji, image_url")
@@ -126,6 +132,7 @@ export async function PATCH(request: NextRequest) {
     .update({
       name: parsed.name,
       price_dp: parsed.priceDp,
+      stock: parsed.stock,
       emoji: parsed.emoji,
       image_url: parsed.imageUrl,
       updated_at: new Date().toISOString(),
