@@ -104,7 +104,7 @@ type Announcement = {
   created_at: string;
 };
 
-const AUTH_EMAIL_DOMAIN = "@dlab.com";
+const AUTH_EMAIL_DOMAIN = "@daddyslab.com";
 const SIGNUP_DEPARTMENTS = ["대치", "판교"];
 const DEPARTMENT_PIN_PREFIX = "dept_pin:";
 const PIN_CHARACTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -238,6 +238,9 @@ export default function AdminPage() {
     useState("");
   const [franchiseSummary, setFranchiseSummary] = useState<FranchiseSummary | null>(null);
   const [isLoadingFranchiseSummary, setIsLoadingFranchiseSummary] = useState(false);
+  const [resetPassword, setResetPassword] = useState("");
+  const [resetPasswordConfirm, setResetPasswordConfirm] = useState("");
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
   const [selectedUploadFile, setSelectedUploadFile] = useState("");
 
   const [selectedStudentId, setSelectedStudentId] = useState("");
@@ -826,6 +829,52 @@ export default function AdminPage() {
     });
   };
 
+  const handleResetAdminPassword = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (!session || session.role !== "master" || !franchiseSummary?.selectedTeacher) {
+      return;
+    }
+
+    if (resetPassword.length < 6) {
+      setDataMessage("새 비밀번호는 6자리 이상 입력해주세요.");
+      return;
+    }
+
+    if (resetPassword !== resetPasswordConfirm) {
+      setDataMessage("새 비밀번호 확인이 일치하지 않습니다.");
+      return;
+    }
+
+    setIsResettingPassword(true);
+    setDataMessage("");
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const response = await fetch("/api/admin/password", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${sessionData.session?.access_token ?? ""}`,
+      },
+      body: JSON.stringify({
+        adminProfileId: franchiseSummary.selectedTeacher.id,
+        password: resetPassword,
+      }),
+    });
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      setDataMessage(payload?.error ?? "비밀번호를 변경하지 못했습니다.");
+      setIsResettingPassword(false);
+      return;
+    }
+
+    setResetPassword("");
+    setResetPasswordConfirm("");
+    setDataMessage(`${franchiseSummary.selectedTeacher.name} 비밀번호를 변경했습니다.`);
+    setIsResettingPassword(false);
+  };
+
   const handlePinChange = (departmentName: string, nextPin: string) => {
     setPinSettings((currentSettings) => ({
       ...currentSettings,
@@ -1411,6 +1460,9 @@ export default function AdminPage() {
                 selectedFranchiseTeacherId={selectedFranchiseTeacherId}
                 franchiseStudentSearchText={franchiseStudentSearchText}
                 isLoadingFranchiseSummary={isLoadingFranchiseSummary}
+                resetPassword={resetPassword}
+                resetPasswordConfirm={resetPasswordConfirm}
+                isResettingPassword={isResettingPassword}
 	              newDepartmentName={newDepartmentName}
                 isDepartmentModalOpen={isDepartmentModalOpen}
 		              isSavingDepartment={isSavingDepartment}
@@ -1420,6 +1472,8 @@ export default function AdminPage() {
                 onFranchiseChange={async (departmentId) => {
                   setSelectedFranchiseId(departmentId);
                   setSelectedFranchiseTeacherId("");
+                  setResetPassword("");
+                  setResetPasswordConfirm("");
                   await loadFranchiseSummary({
                     departmentId,
                     studentQuery: submittedFranchiseStudentSearchText,
@@ -1427,6 +1481,8 @@ export default function AdminPage() {
                 }}
                 onTeacherChange={async (teacherId) => {
                   setSelectedFranchiseTeacherId(teacherId);
+                  setResetPassword("");
+                  setResetPasswordConfirm("");
                   await loadFranchiseSummary({
                     departmentId: selectedFranchiseId,
                     teacherId,
@@ -1443,6 +1499,9 @@ export default function AdminPage() {
                     studentQuery: franchiseStudentSearchText,
                   });
                 }}
+                onResetPasswordChange={setResetPassword}
+                onResetPasswordConfirmChange={setResetPasswordConfirm}
+                onResetAdminPassword={handleResetAdminPassword}
 			            />
 		          ) : activeView === "pins" ? (
 		            <PinManagementView
@@ -1906,6 +1965,9 @@ function DepartmentManagementView({
   selectedFranchiseTeacherId,
   franchiseStudentSearchText,
   isLoadingFranchiseSummary,
+  resetPassword,
+  resetPasswordConfirm,
+  isResettingPassword,
   newDepartmentName,
   isDepartmentModalOpen,
   isSavingDepartment,
@@ -1916,6 +1978,9 @@ function DepartmentManagementView({
   onTeacherChange,
   onFranchiseStudentSearchTextChange,
   onFranchiseStudentSearch,
+  onResetPasswordChange,
+  onResetPasswordConfirmChange,
+  onResetAdminPassword,
 }: {
   departments: Department[];
   canMutateFranchises: boolean;
@@ -1924,6 +1989,9 @@ function DepartmentManagementView({
   selectedFranchiseTeacherId: string;
   franchiseStudentSearchText: string;
   isLoadingFranchiseSummary: boolean;
+  resetPassword: string;
+  resetPasswordConfirm: string;
+  isResettingPassword: boolean;
   newDepartmentName: string;
   isDepartmentModalOpen: boolean;
   isSavingDepartment: boolean;
@@ -1934,6 +2002,9 @@ function DepartmentManagementView({
   onTeacherChange: (teacherId: string) => void;
   onFranchiseStudentSearchTextChange: (text: string) => void;
   onFranchiseStudentSearch: (event: FormEvent<HTMLFormElement>) => void;
+  onResetPasswordChange: (password: string) => void;
+  onResetPasswordConfirmChange: (password: string) => void;
+  onResetAdminPassword: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   const selectedDepartment = franchiseSummary?.selectedDepartment ?? null;
 
@@ -2028,6 +2099,40 @@ function DepartmentManagementView({
               {(franchiseSummary?.selectedTeacher?.totalAwardedPoints ?? 0).toLocaleString()} DP
             </p>
           </div>
+          {canMutateFranchises && franchiseSummary?.selectedTeacher && (
+            <form
+              onSubmit={onResetAdminPassword}
+              className="grid gap-3 border-b border-slate-100 px-5 py-4 lg:grid-cols-[1fr_1fr_auto]"
+            >
+              <label className="block">
+                <span className="text-xs font-black text-slate-500">새 비밀번호</span>
+                <input
+                  type="password"
+                  value={resetPassword}
+                  onChange={(event) => onResetPasswordChange(event.target.value)}
+                  className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold outline-none focus:border-blue-400 focus:bg-white"
+                  placeholder="6자리 이상"
+                />
+              </label>
+              <label className="block">
+                <span className="text-xs font-black text-slate-500">비밀번호 확인</span>
+                <input
+                  type="password"
+                  value={resetPasswordConfirm}
+                  onChange={(event) => onResetPasswordConfirmChange(event.target.value)}
+                  className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold outline-none focus:border-blue-400 focus:bg-white"
+                  placeholder="다시 입력"
+                />
+              </label>
+              <button
+                type="submit"
+                disabled={isResettingPassword}
+                className="rounded-xl bg-slate-900 px-4 py-3 text-sm font-black text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300 lg:mt-6"
+              >
+                {isResettingPassword ? "변경 중" : "비밀번호 변경"}
+              </button>
+            </form>
+          )}
           <div className="overflow-x-auto">
             <table className="w-full min-w-[620px] text-left text-sm">
               <thead className="bg-slate-50 text-xs font-black text-slate-500">

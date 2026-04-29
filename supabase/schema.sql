@@ -194,7 +194,7 @@ insert into departments (name) values
 on conflict (name) do nothing;
 
 insert into admin_profiles (manager_name, login_id, auth_user_id, role, department_id) values
-('차윤빈', 'seed', '4dc58808-03a9-4d51-8d0d-c27af342b908', 'master', (select id from departments where name = '판교'))
+('Kyle', 'kyle', '7f372d74-38b9-4070-856a-2901a8ce4b77', 'master', (select id from departments where name = '판교'))
 on conflict (auth_user_id) do nothing;
 
 commit;

@@ -70,13 +70,13 @@ http://localhost:3000
 
 1. `/lobby` 우측 상단 `관리자` 클릭
 2. `/admin`에서 관리자 아이디와 비밀번호로 로그인
-3. 아이디는 내부적으로 `@dlab.com`이 붙어 이메일 형식으로 로그인됩니다.
+3. 아이디는 내부적으로 `@daddyslab.com`이 붙어 이메일 형식으로 로그인됩니다.
 
 예시:
 
 ```text
-입력 ID: seed
-실제 로그인 이메일: seed@dlab.com
+입력 ID: kyle
+실제 로그인 이메일: kyle@daddyslab.com
 ```
 
 ### 관리자 회원가입
@@ -171,7 +171,7 @@ http://localhost:3000
 최초 master 관리자는 Supabase Auth 계정과 `admin_profiles` 데이터가 함께 필요합니다.
 
 1. Supabase Dashboard에서 Auth user 생성
-2. 로그인 이메일은 앱 입력 ID에 `@dlab.com`을 붙인 형식으로 맞춤
+2. 로그인 이메일은 앱 입력 ID에 `@daddyslab.com`을 붙인 형식으로 맞춤
 3. `admin_profiles.auth_user_id`가 해당 Auth user의 ID를 참조해야 함
 4. `admin_profiles.role`은 `master`로 설정
 5. `admin_profiles.department_id`는 존재하는 가맹점 ID를 참조해야 함
@@ -179,11 +179,17 @@ http://localhost:3000
 예시:
 
 ```text
-관리자 입력 ID: seed
-Supabase Auth email: seed@dlab.com
-admin_profiles.login_id: seed
+관리자 입력 ID: kyle
+Supabase Auth email: kyle@daddyslab.com
+admin_profiles.login_id: kyle
 admin_profiles.role: master
 ```
+
+## 관리자 비밀번호 재설정
+
+관리자 계정은 실제 이메일 수신을 전제로 하지 않습니다.
+비밀번호를 잊은 매니저/스태프는 마스터가 `/admin`의 가맹점 관리 화면에서 해당 강사를 선택한 뒤 새 비밀번호로 변경합니다.
+마스터 계정 비밀번호를 잊은 경우에는 Supabase Dashboard의 Authentication에서 직접 재설정합니다.
 
 ## Supabase 연결
 
