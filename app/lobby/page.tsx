@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 type LoginStudent = {
   id: string;
@@ -20,6 +20,18 @@ export default function LobbyPage() {
   const router = useRouter();
 
   const formatPhone = (value: string) => value.replace(/\D/g, "").slice(0, 8);
+
+  useEffect(() => {
+    if (!errorMessage) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setErrorMessage("");
+    }, 3000);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [errorMessage]);
 
   const handleNumberClick = (num: number) => {
     setErrorMessage("");
@@ -132,7 +144,7 @@ export default function LobbyPage() {
 
         <div className="flex w-full flex-col items-center gap-8">
           {errorMessage && (
-            <div className="w-full rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-center text-sm font-black text-amber-700">
+            <div className="w-full rounded-2xl border border-red-400/80 bg-red-50 px-5 py-4 text-center text-sm font-black text-red-700 shadow-[0_0_0_1px_rgba(248,113,113,0.35),0_0_22px_rgba(248,113,113,0.45)]">
               {errorMessage}
             </div>
           )}
