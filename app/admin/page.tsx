@@ -1,13 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 
 import { supabase } from "@/lib/supabase/client";
 
 type AdminRole = "master" | "manager" | "staff";
-type AdminView = "students" | "shop" | "departments" | "pins" | "announcements";
+type AdminView = "students" | "teachers" | "shop" | "departments" | "pins" | "announcements";
 
 type AdminProfileRow = {
   id: string;
@@ -43,6 +43,7 @@ type Student = {
   name: string;
   grade: string;
   points: number;
+  note: string;
   is_active: boolean;
   created_at: string;
 };
@@ -56,6 +57,7 @@ type Product = {
   stock: number;
   is_active: boolean;
   emoji: string | null;
+  image_url: string | null;
 };
 
 type PinSetting = {
@@ -68,14 +70,22 @@ type FranchiseSummary = {
   selectedDepartment: Department | null;
   totalStudentPoints: number;
   spentPurchasePoints: number;
+  accounts: Array<{
+    id: string;
+    loginId: string;
+    name: string;
+    role: string;
+  }>;
   teachers: Array<{
     id: string;
+    loginId: string;
     name: string;
     role: string;
     totalAwardedPoints: number;
   }>;
   selectedTeacher: {
     id: string;
+    loginId: string;
     name: string;
     role: string;
     totalAwardedPoints: number;
@@ -102,6 +112,39 @@ type Announcement = {
   title: string;
   content: string;
   created_at: string;
+};
+
+type TeacherTransaction = {
+  id: string;
+  studentName: string;
+  amount: number;
+  reason: string;
+  note: string;
+  createdAt: string;
+};
+
+type TeacherSummary = {
+  id: string;
+  loginId: string;
+  name: string;
+  role: string;
+  passwordLabel: string;
+  givenThisMonth: number;
+  recoveredThisMonth: number;
+  transactions: TeacherTransaction[];
+};
+
+type RetiredTeacherSummary = {
+  id: string;
+  loginId: string;
+  name: string;
+  role: string;
+  students: Array<{
+    studentName: string;
+    parentPhone: string;
+    grade: string;
+    points: number;
+  }>;
 };
 
 const AUTH_EMAIL_DOMAIN = "@daddyslab.com";
@@ -134,6 +177,11 @@ const ROLE_LABELS: Record<AdminRole, string> = {
   master: "마스터",
   manager: "매니저",
   staff: "스태프",
+};
+
+const FRANCHISE_MEMBER_ROLE_LABELS: Record<string, string> = {
+  manager: "랩장",
+  staff: "강사",
 };
 
 function getKoreaYear(date: Date) {
@@ -181,7 +229,7 @@ function normalizeExcelGrade(value: string) {
     return `초${elementaryMatch[1]}`;
   }
 
-  const ageMatch = grade.match(/^([3-7])\s*세$/);
+  const ageMatch = grade.match(/^([3-7])\s*세?$/);
 
   if (ageMatch) {
     return `${ageMatch[1]}세`;
@@ -221,6 +269,15 @@ export default function AdminPage() {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [isProductModalOpen, setIsProductModalOpen] = useState(false);
+  const [productModalMode, setProductModalMode] = useState<"create" | "edit">("create");
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [productEmoji, setProductEmoji] = useState("");
+  const [productImageUrl, setProductImageUrl] = useState("");
+  const [productName, setProductName] = useState("");
+  const [productPrice, setProductPrice] = useState("");
+  const [productStock, setProductStock] = useState("");
+  const [isSavingProduct, setIsSavingProduct] = useState(false);
   const [pinSettings, setPinSettings] = useState<Record<string, string>>({});
   const [savedPinDepartments, setSavedPinDepartments] = useState<Set<string>>(new Set());
   const [isLoadingData, setIsLoadingData] = useState(false);
@@ -228,6 +285,9 @@ export default function AdminPage() {
   const [savingPinDepartmentId, setSavingPinDepartmentId] = useState<string | null>(null);
   const [copiedPinDepartment, setCopiedPinDepartment] = useState<string | null>(null);
   const [newDepartmentName, setNewDepartmentName] = useState("");
+  const [newDepartmentOwnerName, setNewDepartmentOwnerName] = useState("");
+  const [newDepartmentManagerId, setNewDepartmentManagerId] = useState("");
+  const [newDepartmentManagerPassword, setNewDepartmentManagerPassword] = useState("");
   const [isDepartmentModalOpen, setIsDepartmentModalOpen] = useState(false);
   const [isSavingDepartment, setIsSavingDepartment] = useState(false);
   const [deletingDepartmentId, setDeletingDepartmentId] = useState<string | null>(null);
@@ -241,6 +301,11 @@ export default function AdminPage() {
   const [resetPassword, setResetPassword] = useState("");
   const [resetPasswordConfirm, setResetPasswordConfirm] = useState("");
   const [isResettingPassword, setIsResettingPassword] = useState(false);
+  const [isCredentialModalOpen, setIsCredentialModalOpen] = useState(false);
+  const [isEditingCredentials, setIsEditingCredentials] = useState(false);
+  const [credentialLoginId, setCredentialLoginId] = useState("");
+  const [credentialPassword, setCredentialPassword] = useState("");
+  const [isSavingCredentials, setIsSavingCredentials] = useState(false);
   const [selectedUploadFile, setSelectedUploadFile] = useState("");
 
   const [selectedStudentId, setSelectedStudentId] = useState("");
@@ -250,6 +315,11 @@ export default function AdminPage() {
   const [pointAmount, setPointAmount] = useState("");
   const [pointReason, setPointReason] = useState("포인트 조정");
   const [isAdjustingPoints, setIsAdjustingPoints] = useState(false);
+  const [studentNotes, setStudentNotes] = useState<Record<string, string>>({});
+  const [savingStudentNoteId, setSavingStudentNoteId] = useState<string | null>(null);
+  const [batchPointMode, setBatchPointMode] = useState<"give" | "recover" | null>(null);
+  const [batchPointAmount, setBatchPointAmount] = useState("");
+  const [batchPointReason, setBatchPointReason] = useState("");
   const [newStudentName, setNewStudentName] = useState("");
   const [newStudentGrade, setNewStudentGrade] = useState("");
   const [newStudentPhone, setNewStudentPhone] = useState("");
@@ -257,6 +327,19 @@ export default function AdminPage() {
   const [isStudentModalOpen, setIsStudentModalOpen] = useState(false);
   const [isDeletingStudents, setIsDeletingStudents] = useState(false);
   const [isDraggingStudentFile, setIsDraggingStudentFile] = useState(false);
+  const [teacherTab, setTeacherTab] = useState<"manage" | "create" | "retired">("manage");
+  const [teacherSummaries, setTeacherSummaries] = useState<TeacherSummary[]>([]);
+  const [retiredTeacherSummaries, setRetiredTeacherSummaries] = useState<RetiredTeacherSummary[]>([]);
+  const [expandedTeacherId, setExpandedTeacherId] = useState<string>("");
+  const [selectedRetiredTeacherId, setSelectedRetiredTeacherId] = useState<string>("");
+  const [newTeacherLoginId, setNewTeacherLoginId] = useState("");
+  const [newTeacherPassword, setNewTeacherPassword] = useState("");
+  const [newTeacherName, setNewTeacherName] = useState("");
+  const [editingTeacher, setEditingTeacher] = useState<TeacherSummary | null>(null);
+  const [teacherEditLoginId, setTeacherEditLoginId] = useState("");
+  const [teacherEditPassword, setTeacherEditPassword] = useState("");
+  const [isLoadingTeachers, setIsLoadingTeachers] = useState(false);
+  const [isSavingTeacher, setIsSavingTeacher] = useState(false);
   const [announcementMode, setAnnouncementMode] = useState<"create" | "edit">("create");
   const [announcementOrder, setAnnouncementOrder] = useState<"latest" | "oldest">("latest");
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
@@ -267,44 +350,68 @@ export default function AdminPage() {
   const [isLoadingAnnouncements, setIsLoadingAnnouncements] = useState(false);
   const [deletingAnnouncementId, setDeletingAnnouncementId] = useState<string | null>(null);
 
-  const canUseShop = session?.role === "master" || session?.role === "manager";
-  const canManageFranchises = session?.role === "master" || session?.role === "manager";
+  const departmentNameById = useMemo(() => {
+    return new Map(departments.map((department) => [department.id, department.name]));
+  }, [departments]);
+
+  const hasSelectedFranchise = session?.role !== "master" || Boolean(selectedFranchiseId);
+  const canUseShop = (session?.role === "master" || session?.role === "manager") && hasSelectedFranchise;
+  const canManageTeachers =
+    (session?.role === "master" || session?.role === "manager") && hasSelectedFranchise;
+  const canManageFranchises = session?.role === "master";
   const canMutateFranchises = session?.role === "master";
   const scopeLabel =
-    session?.role === "master" ? "전체 가맹점" : session ? `${session.departmentName} 가맹점` : "";
+    session?.role === "master"
+      ? selectedFranchiseId
+        ? `${departmentNameById.get(selectedFranchiseId) ?? "선택 가맹점"} 가맹점`
+        : "가맹점을 선택하세요"
+      : session
+        ? `${session.departmentName} 가맹점`
+        : "";
 
   const navItems = useMemo(
     () =>
       [
-        { id: "students" as const, label: "학생 관리", allowed: true },
-        { id: "shop" as const, label: "상점 관리", allowed: canUseShop },
         { id: "departments" as const, label: "가맹점 관리", allowed: canManageFranchises },
+        { id: "students" as const, label: "학생 관리", allowed: session?.role !== "master" || hasSelectedFranchise },
+        { id: "teachers" as const, label: "강사 관리", allowed: canManageTeachers },
+        { id: "shop" as const, label: "상점 관리", allowed: canUseShop },
         { id: "pins" as const, label: "PIN 관리", allowed: canMutateFranchises },
         { id: "announcements" as const, label: "공지 관리", allowed: canMutateFranchises },
       ].filter((item) => item.allowed),
-    [canManageFranchises, canMutateFranchises, canUseShop]
+    [canManageFranchises, canManageTeachers, canMutateFranchises, canUseShop, hasSelectedFranchise, session?.role]
   );
 
-  const checkedStudents = students.filter((student) => checkedStudentIds.has(student.id));
+  const scopedStudents = useMemo(() => {
+    if (session?.role === "master" && selectedFranchiseId) {
+      return students.filter((student) => student.department_id === selectedFranchiseId);
+    }
+
+    return students;
+  }, [selectedFranchiseId, session?.role, students]);
+  const scopedProducts = useMemo(() => {
+    if (session?.role === "master" && selectedFranchiseId) {
+      return products.filter((product) => product.department_id === selectedFranchiseId);
+    }
+
+    return products;
+  }, [products, selectedFranchiseId, session?.role]);
+  const checkedStudents = scopedStudents.filter((student) => checkedStudentIds.has(student.id));
   const selectedStudent = checkedStudents.length === 1 ? checkedStudents[0] : null;
   const displayedStudents = useMemo(() => {
     const query = submittedStudentSearchText.trim().toLowerCase();
 
     if (!query) {
-      return students;
+      return scopedStudents;
     }
 
-    return students.filter((student) => {
+    return scopedStudents.filter((student) => {
       return (
         student.name.toLowerCase().includes(query) ||
         student.parent_phone.replace(/\D/g, "").includes(query.replace(/\D/g, ""))
       );
     });
-  }, [students, submittedStudentSearchText]);
-
-  const departmentNameById = useMemo(() => {
-    return new Map(departments.map((department) => [department.id, department.name]));
-  }, [departments]);
+  }, [scopedStudents, submittedStudentSearchText]);
 
   const loadAdminData = async (currentSession: AdminSession) => {
     setIsLoadingData(true);
@@ -324,7 +431,7 @@ export default function AdminPage() {
 
     const productQuery = supabase
       .from("products")
-      .select("id, department_id, name, category, price_dp, stock, is_active, emoji")
+      .select("id, department_id, name, category, price_dp, stock, is_active, emoji, image_url")
       .order("created_at", { ascending: false });
 
     const { data: productRows, error: productError } =
@@ -342,11 +449,11 @@ export default function AdminPage() {
       currentSession.role === "master"
         ? await supabase
             .from("students")
-            .select("id, department_id, teacher_id, parent_phone, name, grade, points, is_active, created_at")
+            .select("id, department_id, teacher_id, parent_phone, name, grade, points, note, is_active, created_at")
             .order("created_at", { ascending: false })
         : await supabase
             .from("students")
-            .select("id, department_id, teacher_id, parent_phone, name, grade, points, is_active, created_at")
+            .select("id, department_id, teacher_id, parent_phone, name, grade, points, note, is_active, created_at")
             .eq("department_id", currentSession.departmentId)
             .order("created_at", { ascending: false });
 
@@ -357,7 +464,7 @@ export default function AdminPage() {
     }
 
     setDepartments(departmentRows ?? []);
-    setSelectedFranchiseId((currentSession.role === "master" ? departmentRows?.[0]?.id : currentSession.departmentId) ?? "");
+    setSelectedFranchiseId(currentSession.role === "master" ? "" : currentSession.departmentId);
     setProducts(productRows ?? []);
     setStudents(studentRows ?? []);
     setSelectedStudentId((studentRows ?? [])[0]?.id ?? "");
@@ -390,7 +497,24 @@ export default function AdminPage() {
       setSavedPinDepartments(new Set());
     }
 
+    await loadStudentNotes();
     setIsLoadingData(false);
+  };
+
+  const loadStudentNotes = async () => {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const response = await fetch("/api/admin/student-notes", {
+      headers: {
+        Authorization: `Bearer ${sessionData.session?.access_token ?? ""}`,
+      },
+    });
+
+    if (!response.ok) {
+      return;
+    }
+
+    const payload = (await response.json()) as { notes?: Record<string, string> };
+    setStudentNotes(payload.notes ?? {});
   };
 
   const loadFranchiseSummary = async ({
@@ -507,12 +631,17 @@ export default function AdminPage() {
     };
 
     setSession(nextSession);
+    if (nextSession.role === "master") {
+      setActiveView("departments");
+    } else {
+      setActiveView("students");
+    }
     setLoginPassword("");
     setIsLoggingIn(false);
     await loadAdminData(nextSession);
-    if (nextSession.role === "master" || nextSession.role === "manager") {
+    if (nextSession.role === "manager") {
       await loadFranchiseSummary({
-        departmentId: nextSession.role === "master" ? undefined : nextSession.departmentId,
+        departmentId: nextSession.departmentId,
       });
     }
   };
@@ -529,8 +658,8 @@ export default function AdminPage() {
       return;
     }
 
-    if (signupPassword.length < 4) {
-      setMessage("비밀번호는 4자리 이상 입력해주세요.");
+    if (signupPassword.length < 6) {
+      setMessage("비밀번호는 6자 이상이어야 합니다.");
       return;
     }
 
@@ -585,7 +714,7 @@ export default function AdminPage() {
     });
 
     if (profileError) {
-      setMessage("Auth 계정은 생성됐지만 관리자 프로필 저장에 실패했습니다.");
+      setMessage("Auth 계정은 생성되었지만 관리자 프로필 생성에 실패했습니다.");
       setIsSigningUp(false);
       return;
     }
@@ -647,7 +776,10 @@ export default function AdminPage() {
         "Content-Type": "application/json",
         Authorization: `Bearer ${sessionData.session?.access_token ?? ""}`,
       },
-      body: JSON.stringify({ students: studentRows }),
+      body: JSON.stringify({
+        departmentId: session?.role === "master" ? selectedFranchiseId : session?.departmentId,
+        students: studentRows,
+      }),
     });
 
     if (!response.ok) {
@@ -758,9 +890,27 @@ export default function AdminPage() {
     }
 
     const name = newDepartmentName.trim();
+    const managerName = newDepartmentOwnerName.trim();
+    const managerLoginId = newDepartmentManagerId.trim().toLowerCase();
+    const managerPassword = newDepartmentManagerPassword;
 
     if (!name) {
       setDataMessage("추가할 가맹점명을 입력해주세요.");
+      return;
+    }
+
+    if (!managerName) {
+      setDataMessage("가맹점 주인 이름을 입력해주세요.");
+      return;
+    }
+
+    if (!managerLoginId) {
+      setDataMessage("manager ID를 입력해주세요.");
+      return;
+    }
+
+    if (managerPassword.length < 6) {
+      setDataMessage("manager PW는 6자 이상이어야 합니다.");
       return;
     }
 
@@ -774,7 +924,12 @@ export default function AdminPage() {
         "Content-Type": "application/json",
         Authorization: `Bearer ${sessionData.session?.access_token ?? ""}`,
       },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({
+        name,
+        managerName,
+        managerLoginId,
+        managerPassword,
+      }),
     });
 
     if (!response.ok) {
@@ -785,8 +940,11 @@ export default function AdminPage() {
     }
 
     setNewDepartmentName("");
+    setNewDepartmentOwnerName("");
+    setNewDepartmentManagerId("");
+    setNewDepartmentManagerPassword("");
     setIsDepartmentModalOpen(false);
-    setDataMessage("가맹점을 저장했습니다.");
+    setDataMessage("가맹점을 생성했습니다.");
     setIsSavingDepartment(false);
     await loadAdminData(session);
     await loadFranchiseSummary({
@@ -837,7 +995,7 @@ export default function AdminPage() {
     }
 
     if (resetPassword.length < 6) {
-      setDataMessage("새 비밀번호는 6자리 이상 입력해주세요.");
+      setDataMessage("새 비밀번호는 6자 이상이어야 합니다.");
       return;
     }
 
@@ -873,6 +1031,367 @@ export default function AdminPage() {
     setResetPasswordConfirm("");
     setDataMessage(`${franchiseSummary.selectedTeacher.name} 비밀번호를 변경했습니다.`);
     setIsResettingPassword(false);
+  };
+
+  const openCreateProductModal = () => {
+    setProductModalMode("create");
+    setEditingProduct(null);
+    setProductEmoji("");
+    setProductImageUrl("");
+    setProductName("");
+    setProductPrice("");
+    setProductStock("999");
+    setIsProductModalOpen(true);
+  };
+
+  const openEditProductModal = (product: Product) => {
+    setProductModalMode("edit");
+    setEditingProduct(product);
+    setProductEmoji(product.emoji ?? "");
+    setProductImageUrl(product.image_url ?? "");
+    setProductName(product.name);
+    setProductPrice(String(product.price_dp));
+    setProductStock(String(product.stock));
+    setIsProductModalOpen(true);
+  };
+
+  const closeProductModal = () => {
+    setIsProductModalOpen(false);
+    setEditingProduct(null);
+    setProductEmoji("");
+    setProductImageUrl("");
+    setProductName("");
+    setProductPrice("");
+    setProductStock("");
+  };
+
+  const handleProductImageChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+
+    if (!file) {
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        setProductImageUrl(reader.result);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSaveProduct = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (!session || !["master", "manager"].includes(session.role)) {
+      return;
+    }
+
+    const productDepartmentId =
+      session.role === "master" ? selectedFranchiseId : session.departmentId;
+
+    if (!productDepartmentId) {
+      setDataMessage("가맹점을 먼저 선택해주세요.");
+      return;
+    }
+
+    const priceDp = Number(productPrice);
+    const stock = Number(productStock);
+
+    if (!productName.trim()) {
+      setDataMessage("상품 이름을 입력해주세요.");
+      return;
+    }
+
+    if (!Number.isInteger(priceDp) || priceDp < 0) {
+      setDataMessage("상품 가격은 0 이상의 숫자로 입력해주세요.");
+      return;
+    }
+
+    if (!Number.isInteger(stock) || stock < 0) {
+      setDataMessage("상품 재고는 0 이상의 숫자로 입력해주세요.");
+      return;
+    }
+
+    setIsSavingProduct(true);
+    setDataMessage("");
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const response = await fetch("/api/admin/products", {
+      method: productModalMode === "create" ? "POST" : "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${sessionData.session?.access_token ?? ""}`,
+      },
+      body: JSON.stringify({
+        id: editingProduct?.id,
+        departmentId: productDepartmentId,
+        emoji: productEmoji,
+        imageUrl: productImageUrl,
+        name: productName,
+        priceDp,
+        stock,
+      }),
+    });
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      setDataMessage(payload?.error ?? "상품을 저장하지 못했습니다.");
+      setIsSavingProduct(false);
+      return;
+    }
+
+    const payload = (await response.json()) as { product: Product };
+    setProducts((currentProducts) =>
+      productModalMode === "create"
+        ? [payload.product, ...currentProducts]
+        : currentProducts.map((product) =>
+            product.id === payload.product.id ? payload.product : product
+          )
+    );
+    setDataMessage(productModalMode === "create" ? "상품을 추가했습니다." : "상품을 수정했습니다.");
+    setIsSavingProduct(false);
+    closeProductModal();
+  };
+
+  const loadTeacherData = async () => {
+    if (!session || !["master", "manager"].includes(session.role)) {
+      return;
+    }
+
+    const departmentId = session.role === "master" ? selectedFranchiseId : session.departmentId;
+
+    if (!departmentId) {
+      setDataMessage("가맹점을 먼저 선택해주세요.");
+      return;
+    }
+
+    setIsLoadingTeachers(true);
+    setDataMessage("");
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const response = await fetch(`/api/admin/teachers?departmentId=${departmentId}`, {
+      headers: {
+        Authorization: `Bearer ${sessionData.session?.access_token ?? ""}`,
+      },
+    });
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      setDataMessage(payload?.error ?? "강사 정보를 불러오지 못했습니다.");
+      setIsLoadingTeachers(false);
+      return;
+    }
+
+    const payload = (await response.json()) as {
+      teachers: TeacherSummary[];
+      retiredTeachers: RetiredTeacherSummary[];
+    };
+    setTeacherSummaries(payload.teachers ?? []);
+    setRetiredTeacherSummaries(payload.retiredTeachers ?? []);
+    setExpandedTeacherId((current) => current || payload.teachers?.[0]?.id || "");
+    setSelectedRetiredTeacherId((current) => current || payload.retiredTeachers?.[0]?.id || "");
+    setIsLoadingTeachers(false);
+  };
+
+  const handleAddTeacher = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (!newTeacherLoginId.trim() || !newTeacherPassword.trim() || !newTeacherName.trim()) {
+      setDataMessage("강사 ID, PW, 본명을 모두 입력해주세요.");
+      return;
+    }
+
+    const departmentId = session?.role === "master" ? selectedFranchiseId : session?.departmentId;
+
+    if (!departmentId) {
+      setDataMessage("가맹점을 먼저 선택해주세요.");
+      return;
+    }
+
+    setIsSavingTeacher(true);
+    setDataMessage("");
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const response = await fetch("/api/admin/teachers", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${sessionData.session?.access_token ?? ""}`,
+      },
+      body: JSON.stringify({
+        loginId: newTeacherLoginId,
+        password: newTeacherPassword,
+        name: newTeacherName,
+        departmentId,
+      }),
+    });
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      setDataMessage(payload?.error ?? "강사를 추가하지 못했습니다.");
+      setIsSavingTeacher(false);
+      return;
+    }
+
+    setNewTeacherLoginId("");
+    setNewTeacherPassword("");
+    setNewTeacherName("");
+    setDataMessage("강사를 추가했습니다.");
+    setIsSavingTeacher(false);
+    setTeacherTab("manage");
+    await loadTeacherData();
+  };
+
+  const openTeacherEditModal = (teacher: TeacherSummary) => {
+    setEditingTeacher(teacher);
+    setTeacherEditLoginId(teacher.loginId);
+    setTeacherEditPassword("");
+  };
+
+  const closeTeacherEditModal = () => {
+    setEditingTeacher(null);
+    setTeacherEditLoginId("");
+    setTeacherEditPassword("");
+  };
+
+  const handleUpdateTeacher = async (retire = false) => {
+    if (!editingTeacher) {
+      return;
+    }
+
+    const departmentId = session?.role === "master" ? selectedFranchiseId : session?.departmentId;
+
+    if (!retire && (!teacherEditLoginId.trim() || teacherEditPassword.trim().length < 6)) {
+      setDataMessage("강사 ID와 6자 이상의 PW를 입력해주세요.");
+      return;
+    }
+
+    setIsSavingTeacher(true);
+    setDataMessage("");
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const response = await fetch("/api/admin/teachers", {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${sessionData.session?.access_token ?? ""}`,
+      },
+      body: JSON.stringify({
+        teacherId: editingTeacher.id,
+        loginId: teacherEditLoginId,
+        password: teacherEditPassword,
+        departmentId,
+        retire,
+      }),
+    });
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      setDataMessage(payload?.error ?? "강사 정보를 수정하지 못했습니다.");
+      setIsSavingTeacher(false);
+      return;
+    }
+
+    setDataMessage(retire ? "강사를 등록 해제했습니다." : "강사 정보를 수정했습니다.");
+    setIsSavingTeacher(false);
+    closeTeacherEditModal();
+    await loadTeacherData();
+  };
+
+  const getCredentialTarget = () =>
+    franchiseSummary?.accounts.find((account) => account.role === "manager") ??
+    franchiseSummary?.accounts[0] ??
+    null;
+
+  const handleOpenCredentialModal = () => {
+    const target = getCredentialTarget();
+
+    if (!target) {
+      setDataMessage("확인할 manager 계정이 없습니다.");
+      return;
+    }
+
+    setCredentialLoginId(target.loginId);
+    setCredentialPassword("");
+    setIsEditingCredentials(false);
+    setIsCredentialModalOpen(true);
+  };
+
+  const handleCloseCredentialModal = () => {
+    setCredentialLoginId("");
+    setCredentialPassword("");
+    setIsEditingCredentials(false);
+    setIsCredentialModalOpen(false);
+  };
+
+  const handleCancelCredentialEdit = () => {
+    const target = getCredentialTarget();
+
+    setCredentialLoginId(target?.loginId ?? "");
+    setCredentialPassword("");
+    setIsEditingCredentials(false);
+  };
+
+  const handleUpdateCredentials = async () => {
+    if (!session || session.role !== "master") {
+      return;
+    }
+
+    const target = getCredentialTarget();
+    const nextLoginId = credentialLoginId.trim().toLowerCase();
+    const nextPassword = credentialPassword.trim();
+
+    if (!target) {
+      setDataMessage("변경할 manager 계정이 없습니다.");
+      return;
+    }
+
+    if (!nextLoginId) {
+      setDataMessage("manager ID를 입력해주세요.");
+      return;
+    }
+
+    if (nextPassword.length < 6) {
+      setDataMessage("manager PW는 6자 이상이어야 합니다.");
+      return;
+    }
+
+    setIsSavingCredentials(true);
+    setDataMessage("");
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const response = await fetch("/api/admin/password", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${sessionData.session?.access_token ?? ""}`,
+      },
+      body: JSON.stringify({
+        adminProfileId: target.id,
+        loginId: nextLoginId,
+        password: nextPassword,
+      }),
+    });
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      setDataMessage(payload?.error ?? "manager 계정을 변경하지 못했습니다.");
+      setIsSavingCredentials(false);
+      return;
+    }
+
+    setCredentialLoginId(nextLoginId);
+    setCredentialPassword("");
+    setIsEditingCredentials(false);
+    setIsSavingCredentials(false);
+    setDataMessage("manager 계정을 변경했습니다.");
+    await loadFranchiseSummary({
+      departmentId: selectedFranchiseId || undefined,
+      teacherId: selectedFranchiseTeacherId || undefined,
+      studentQuery: submittedFranchiseStudentSearchText,
+    });
   };
 
   const handlePinChange = (departmentName: string, nextPin: string) => {
@@ -1091,9 +1610,9 @@ export default function AdminPage() {
     });
 
     if (transactionError) {
-      setDataMessage("포인트는 수정됐지만 이력 저장에 실패했습니다.");
+      setDataMessage("포인트는 수정했지만 이력 저장에 실패했습니다.");
     } else {
-      setDataMessage(`${selectedStudent.name} 학생의 포인트를 저장했습니다.`);
+      setDataMessage(`${selectedStudent.name} 학생의 포인트를 변경했습니다.`);
     }
 
     setStudents((currentStudents) =>
@@ -1102,6 +1621,161 @@ export default function AdminPage() {
       )
     );
     setIsAdjustingPoints(false);
+  };
+
+  const handleDirectedPointAdjustment = async (student: Student, direction: "give" | "recover") => {
+    const absAmount = Math.abs(Number(pointAmount));
+    const signedAmount = direction === "give" ? absAmount : -absAmount;
+
+    setCheckedStudentIds(new Set([student.id]));
+    setPointAmount(String(signedAmount));
+
+    if (!Number.isInteger(absAmount) || absAmount === 0) {
+      setDataMessage("포인트를 입력하고 지급 또는 회수 버튼을 눌러주세요.");
+      return;
+    }
+
+    const nextBalance = student.points + signedAmount;
+
+    if (nextBalance < 0) {
+      setDataMessage("DP가 0보다 작아질 수 없습니다.");
+      return;
+    }
+
+    setIsAdjustingPoints(true);
+    setDataMessage("");
+
+    const { error: updateError } = await supabase
+      .from("students")
+      .update({ points: nextBalance })
+      .eq("id", student.id);
+
+    if (updateError) {
+      setDataMessage("포인트를 수정하지 못했습니다.");
+      setIsAdjustingPoints(false);
+      return;
+    }
+
+    const { error: transactionError } = await supabase.from("point_transactions").insert({
+      student_id: student.id,
+      department_id: student.department_id,
+      amount: signedAmount,
+      balance_after: nextBalance,
+      transaction_type: "etc",
+      reason: pointReason.trim() || "포인트 조정",
+      adjusted_by: session?.id,
+    });
+
+    setStudents((currentStudents) =>
+      currentStudents.map((currentStudent) =>
+        currentStudent.id === student.id ? { ...currentStudent, points: nextBalance } : currentStudent
+      )
+    );
+    setDataMessage(
+      transactionError
+        ? "포인트는 수정했지만 이력 저장에 실패했습니다."
+        : `${student.name} 학생의 포인트를 변경했습니다.`
+    );
+    setIsAdjustingPoints(false);
+  };
+
+  const handleBatchPointAdjustment = async () => {
+    if (!session || !batchPointMode || !checkedStudentIds.size) {
+      return;
+    }
+
+    const absAmount = Math.abs(Number(batchPointAmount));
+
+    if (!Number.isInteger(absAmount) || absAmount === 0) {
+      setDataMessage("일괄 조정할 포인트를 입력해주세요.");
+      return;
+    }
+
+    const signedAmount = batchPointMode === "give" ? absAmount : -absAmount;
+    const targets = students.filter((student) => checkedStudentIds.has(student.id));
+
+    if (targets.some((student) => student.points + signedAmount < 0)) {
+      setDataMessage("회수 후 포인트가 0보다 작아지는 학생이 있습니다.");
+      return;
+    }
+
+    setIsAdjustingPoints(true);
+    setDataMessage("");
+
+    for (const student of targets) {
+      const nextBalance = student.points + signedAmount;
+      const { error: updateError } = await supabase
+        .from("students")
+        .update({ points: nextBalance })
+        .eq("id", student.id);
+
+      if (updateError) {
+        setDataMessage("일괄 포인트 조정 중 오류가 발생했습니다.");
+        setIsAdjustingPoints(false);
+        return;
+      }
+
+      await supabase.from("point_transactions").insert({
+        student_id: student.id,
+        department_id: student.department_id,
+        amount: signedAmount,
+        balance_after: nextBalance,
+        transaction_type: "etc",
+        reason: batchPointReason.trim() || pointReason.trim() || "포인트 조정",
+        adjusted_by: session.id,
+      });
+    }
+
+    setStudents((currentStudents) =>
+      currentStudents.map((student) =>
+        checkedStudentIds.has(student.id)
+          ? { ...student, points: student.points + signedAmount }
+          : student
+      )
+    );
+    setBatchPointMode(null);
+    setBatchPointAmount("");
+    setBatchPointReason("");
+    setDataMessage(`${targets.length}명에게 포인트를 일괄 변경했습니다.`);
+    setIsAdjustingPoints(false);
+  };
+
+  const handleStudentNoteChange = (studentId: string, note: string) => {
+    setStudentNotes((currentNotes) => ({ ...currentNotes, [studentId]: note }));
+  };
+
+  const handleStudentNoteSave = async (studentId: string) => {
+    const note = studentNotes[studentId] ?? students.find((student) => student.id === studentId)?.note ?? "";
+
+    setSavingStudentNoteId(studentId);
+    setDataMessage("");
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const response = await fetch("/api/admin/student-notes", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${sessionData.session?.access_token ?? ""}`,
+      },
+      body: JSON.stringify({
+        studentId,
+        note,
+        departmentId: session?.role === "master" ? selectedFranchiseId : undefined,
+      }),
+    });
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      setDataMessage(payload?.error ?? "비고를 저장하지 못했습니다.");
+      setSavingStudentNoteId(null);
+      return;
+    }
+
+    setStudents((currentStudents) =>
+      currentStudents.map((student) => (student.id === studentId ? { ...student, note } : student))
+    );
+    setDataMessage("비고를 저장했습니다.");
+    setSavingStudentNoteId(null);
   };
 
   const handleStudentExcelUpload = (file: File | null) => {
@@ -1133,7 +1807,7 @@ export default function AdminPage() {
           parent_phone: pickExcelValue(row, [
             "부모HP(모)",
             "부모HP",
-            "부모 HP",
+            "부모HP",
             "학부모 연락처",
             "학부모연락처",
             "연락처",
@@ -1279,7 +1953,7 @@ export default function AdminPage() {
                 value={signupPassword}
                 onChange={(event) => setSignupPassword(event.target.value)}
                 className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 font-bold text-slate-800 outline-none transition focus:border-blue-400 focus:bg-white"
-                placeholder="4자리 이상"
+                placeholder="6자 이상"
               />
             </label>
             <label className="block">
@@ -1347,7 +2021,14 @@ export default function AdminPage() {
           </div>
 
           <nav className="mt-6 space-y-2">
-            {navItems.map((item) => (
+            {navItems.map((item) => {
+              const isFranchiseChild = ["students", "teachers", "shop"].includes(item.id);
+              const franchiseChildLabel =
+                isFranchiseChild && selectedFranchiseId
+                  ? `${item.label} (${departmentNameById.get(selectedFranchiseId) ?? "선택 가맹점"})`
+                  : item.label;
+
+              return (
               <button
                 key={item.id}
 	              onClick={async () => {
@@ -1367,6 +2048,10 @@ export default function AdminPage() {
                     });
                   }
 
+                  if (item.id === "teachers") {
+                    await loadTeacherData();
+                  }
+
                   if (item.id === "announcements") {
                     await loadAnnouncements();
                   }
@@ -1375,11 +2060,12 @@ export default function AdminPage() {
                   activeView === item.id
                     ? "bg-blue-600 text-white"
                     : "bg-white text-slate-600 hover:bg-slate-100"
-                }`}
+                } ${isFranchiseChild ? "ml-4 w-[calc(100%-1rem)] border-l-4 border-blue-200 pl-3" : ""}`}
               >
-                {item.label}
+                {isFranchiseChild ? franchiseChildLabel : item.label}
               </button>
-            ))}
+              );
+            })}
           </nav>
 
           <button
@@ -1396,6 +2082,7 @@ export default function AdminPage() {
 	              <p className="text-sm font-black text-blue-600">{scopeLabel}</p>
 	              <h2 className="mt-1 text-3xl font-black">
 	                {activeView === "students" && "학생 관리"}
+	                {activeView === "teachers" && "강사 관리"}
 	                {activeView === "shop" && "상점 관리"}
 	                {activeView === "departments" && "가맹점 관리"}
 	                {activeView === "pins" && "PIN 관리"}
@@ -1418,9 +2105,14 @@ export default function AdminPage() {
 		              selectedStudent={selectedStudent}
 		              checkedStudentIds={checkedStudentIds}
 		              studentSearchText={studentSearchText}
+	              studentNotes={studentNotes}
 	              pointAmount={pointAmount}
 	              pointReason={pointReason}
+	              batchPointMode={batchPointMode}
+	              batchPointAmount={batchPointAmount}
+	              batchPointReason={batchPointReason}
 	              isAdjustingPoints={isAdjustingPoints}
+	              savingStudentNoteId={savingStudentNoteId}
 	              selectedUploadFile={selectedUploadFile}
 	              newStudentName={newStudentName}
 	              newStudentGrade={newStudentGrade}
@@ -1433,9 +2125,16 @@ export default function AdminPage() {
 		              onToggleAllStudents={handleToggleAllStudents}
 		              onStudentSearchTextChange={setStudentSearchText}
 		              onStudentSearch={handleStudentSearch}
-		              onPointAmountChange={setPointAmount}
+	              onPointAmountChange={setPointAmount}
 	              onPointReasonChange={setPointReason}
 	              onAdjustPoints={handlePointAdjustment}
+	              onDirectedPointAdjustment={handleDirectedPointAdjustment}
+	              onStudentNoteChange={handleStudentNoteChange}
+	              onStudentNoteSave={handleStudentNoteSave}
+	              onBatchPointModeChange={setBatchPointMode}
+	              onBatchPointAmountChange={setBatchPointAmount}
+	              onBatchPointReasonChange={setBatchPointReason}
+	              onBatchPointConfirm={handleBatchPointAdjustment}
 	              onExcelUpload={handleStudentExcelUpload}
 	              onNewStudentNameChange={setNewStudentName}
 	              onNewStudentGradeChange={setNewStudentGrade}
@@ -1445,11 +2144,56 @@ export default function AdminPage() {
 		              onDeleteCheckedStudents={handleDeleteCheckedStudents}
 	              onDragStateChange={setIsDraggingStudentFile}
 	            />
+	          ) : activeView === "teachers" ? (
+              <TeacherManagementView
+                teacherTab={teacherTab}
+                teachers={teacherSummaries}
+                retiredTeachers={retiredTeacherSummaries}
+                expandedTeacherId={expandedTeacherId}
+                selectedRetiredTeacherId={selectedRetiredTeacherId}
+                newTeacherLoginId={newTeacherLoginId}
+                newTeacherPassword={newTeacherPassword}
+                newTeacherName={newTeacherName}
+                editingTeacher={editingTeacher}
+                teacherEditLoginId={teacherEditLoginId}
+                teacherEditPassword={teacherEditPassword}
+                isLoadingTeachers={isLoadingTeachers}
+                isSavingTeacher={isSavingTeacher}
+                onTeacherTabChange={setTeacherTab}
+                onExpandedTeacherChange={setExpandedTeacherId}
+                onRetiredTeacherChange={setSelectedRetiredTeacherId}
+                onNewTeacherLoginIdChange={setNewTeacherLoginId}
+                onNewTeacherPasswordChange={setNewTeacherPassword}
+                onNewTeacherNameChange={setNewTeacherName}
+                onAddTeacher={handleAddTeacher}
+                onTeacherEditOpen={openTeacherEditModal}
+                onTeacherEditClose={closeTeacherEditModal}
+                onTeacherEditLoginIdChange={setTeacherEditLoginId}
+                onTeacherEditPasswordChange={setTeacherEditPassword}
+                onTeacherUpdate={handleUpdateTeacher}
+              />
 	          ) : activeView === "shop" ? (
 	            <ShopManagementView
-	              products={products}
+	              products={scopedProducts}
 	              departmentNameById={departmentNameById}
 	              showDepartment={session.role === "master"}
+                isProductModalOpen={isProductModalOpen}
+                productModalMode={productModalMode}
+                productEmoji={productEmoji}
+                productImageUrl={productImageUrl}
+                productName={productName}
+                productPrice={productPrice}
+                productStock={productStock}
+                isSavingProduct={isSavingProduct}
+                onCreateProduct={openCreateProductModal}
+                onEditProduct={openEditProductModal}
+                onCloseProductModal={closeProductModal}
+                onProductEmojiChange={setProductEmoji}
+                onProductImageChange={handleProductImageChange}
+                onProductNameChange={setProductName}
+                onProductPriceChange={setProductPrice}
+                onProductStockChange={setProductStock}
+                onSaveProduct={handleSaveProduct}
 	            />
 		          ) : activeView === "departments" ? (
 	            <DepartmentManagementView
@@ -1463,10 +2207,21 @@ export default function AdminPage() {
                 resetPassword={resetPassword}
                 resetPasswordConfirm={resetPasswordConfirm}
                 isResettingPassword={isResettingPassword}
+                isCredentialModalOpen={isCredentialModalOpen}
+                isEditingCredentials={isEditingCredentials}
+                credentialLoginId={credentialLoginId}
+                credentialPassword={credentialPassword}
+                isSavingCredentials={isSavingCredentials}
 	              newDepartmentName={newDepartmentName}
+	              newDepartmentOwnerName={newDepartmentOwnerName}
+	              newDepartmentManagerId={newDepartmentManagerId}
+	              newDepartmentManagerPassword={newDepartmentManagerPassword}
                 isDepartmentModalOpen={isDepartmentModalOpen}
 		              isSavingDepartment={isSavingDepartment}
 				              onNewDepartmentNameChange={setNewDepartmentName}
+				              onNewDepartmentOwnerNameChange={setNewDepartmentOwnerName}
+				              onNewDepartmentManagerIdChange={setNewDepartmentManagerId}
+				              onNewDepartmentManagerPasswordChange={setNewDepartmentManagerPassword}
 				              onAddDepartment={handleAddDepartment}
                 onDepartmentModalOpenChange={setIsDepartmentModalOpen}
                 onFranchiseChange={async (departmentId) => {
@@ -1474,6 +2229,11 @@ export default function AdminPage() {
                   setSelectedFranchiseTeacherId("");
                   setResetPassword("");
                   setResetPasswordConfirm("");
+                  setCheckedStudentIds(new Set());
+                  setSubmittedStudentSearchText("");
+                  setStudentSearchText("");
+                  setTeacherSummaries([]);
+                  setRetiredTeacherSummaries([]);
                   await loadFranchiseSummary({
                     departmentId,
                     studentQuery: submittedFranchiseStudentSearchText,
@@ -1502,7 +2262,14 @@ export default function AdminPage() {
                 onResetPasswordChange={setResetPassword}
                 onResetPasswordConfirmChange={setResetPasswordConfirm}
                 onResetAdminPassword={handleResetAdminPassword}
-			            />
+                onCredentialModalOpen={handleOpenCredentialModal}
+                onCredentialModalClose={handleCloseCredentialModal}
+                onCredentialEditStart={() => setIsEditingCredentials(true)}
+                onCredentialEditCancel={handleCancelCredentialEdit}
+                onCredentialLoginIdChange={setCredentialLoginId}
+                onCredentialPasswordChange={setCredentialPassword}
+                onCredentialUpdate={handleUpdateCredentials}
+              />
 		          ) : activeView === "pins" ? (
 		            <PinManagementView
 		              departments={departments}
@@ -1560,9 +2327,14 @@ function StudentManagementView({
   selectedStudent,
   checkedStudentIds,
   studentSearchText,
+  studentNotes,
   pointAmount,
   pointReason,
+  batchPointMode,
+  batchPointAmount,
+  batchPointReason,
   isAdjustingPoints,
+  savingStudentNoteId,
   selectedUploadFile,
   newStudentName,
   newStudentGrade,
@@ -1578,6 +2350,13 @@ function StudentManagementView({
   onPointAmountChange,
   onPointReasonChange,
   onAdjustPoints,
+  onDirectedPointAdjustment,
+  onStudentNoteChange,
+  onStudentNoteSave,
+  onBatchPointModeChange,
+  onBatchPointAmountChange,
+  onBatchPointReasonChange,
+  onBatchPointConfirm,
   onExcelUpload,
   onNewStudentNameChange,
   onNewStudentGradeChange,
@@ -1592,9 +2371,14 @@ function StudentManagementView({
   selectedStudent: Student | null;
   checkedStudentIds: Set<string>;
   studentSearchText: string;
+  studentNotes: Record<string, string>;
   pointAmount: string;
   pointReason: string;
+  batchPointMode: "give" | "recover" | null;
+  batchPointAmount: string;
+  batchPointReason: string;
   isAdjustingPoints: boolean;
+  savingStudentNoteId: string | null;
   selectedUploadFile: string;
   newStudentName: string;
   newStudentGrade: string;
@@ -1610,6 +2394,13 @@ function StudentManagementView({
   onPointAmountChange: (amount: string) => void;
   onPointReasonChange: (reason: string) => void;
   onAdjustPoints: () => void;
+  onDirectedPointAdjustment: (student: Student, direction: "give" | "recover") => void;
+  onStudentNoteChange: (studentId: string, note: string) => void;
+  onStudentNoteSave: (studentId: string) => void;
+  onBatchPointModeChange: (mode: "give" | "recover" | null) => void;
+  onBatchPointAmountChange: (amount: string) => void;
+  onBatchPointReasonChange: (reason: string) => void;
+  onBatchPointConfirm: () => void;
   onExcelUpload: (file: File | null) => void;
   onNewStudentNameChange: (name: string) => void;
   onNewStudentGradeChange: (grade: string) => void;
@@ -1622,6 +2413,220 @@ function StudentManagementView({
   const isPointFocused = role === "staff";
   const canEditStudents = role !== "staff";
   const allStudentsChecked = students.length > 0 && checkedStudentIds.size === students.length;
+  const checkedStudents = students.filter((student) => checkedStudentIds.has(student.id));
+  const [expandedStudentId, setExpandedStudentId] = useState("");
+  const [expandedNoteStudentId, setExpandedNoteStudentId] = useState("");
+
+  if (isPointFocused) {
+    return (
+      <div className="mt-8 grid gap-6 xl:grid-cols-[1fr_360px]">
+        <section className="overflow-hidden rounded-2xl bg-white shadow-sm">
+          <div className="border-b border-slate-100 px-5 py-4">
+            <p className="text-sm font-black text-slate-500">코인 지급</p>
+            <form onSubmit={onStudentSearch} className="mt-3 flex gap-2">
+              <input
+                type="text"
+                value={studentSearchText}
+                onChange={(event) => onStudentSearchTextChange(event.target.value)}
+                className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold outline-none focus:border-blue-400 focus:bg-white"
+                placeholder="학생 이름"
+              />
+              <button className="rounded-xl bg-blue-600 px-4 py-3 text-sm font-black text-white hover:bg-blue-700">
+                확인
+              </button>
+            </form>
+          </div>
+
+          <div className="divide-y divide-slate-100">
+            {students.map((student) => {
+              const isExpanded = expandedStudentId === student.id;
+
+              return (
+                <div key={student.id}>
+                  <button
+                    type="button"
+                    onClick={() => setExpandedStudentId(isExpanded ? "" : student.id)}
+                    className="grid w-full gap-3 px-5 py-4 text-left transition hover:bg-slate-50 sm:grid-cols-[1.1fr_1.4fr_0.8fr_0.9fr_auto]"
+                  >
+                    <div>
+                      <p className="text-xs font-black text-slate-400">학생 이름</p>
+                      <p className="mt-1 font-black">{student.name}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-black text-slate-400">부모님 번호</p>
+                      <p className="mt-1 font-bold text-slate-600">{student.parent_phone}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-black text-slate-400">학년</p>
+                      <p className="mt-1 font-bold text-slate-600">
+                        {getPromotedGrade(student.grade, student.created_at)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-black text-slate-400">보유 포인트</p>
+                      <p className="mt-1 font-black text-blue-600">
+                        {student.points.toLocaleString()} DP
+                      </p>
+                    </div>
+                    <span className="self-center rounded-xl bg-slate-100 px-3 py-2 text-xs font-black text-slate-600">
+                      {isExpanded ? "닫기" : "열기"}
+                    </span>
+                  </button>
+
+                  {isExpanded && (
+                    <div className="grid gap-4 bg-slate-50 px-5 py-5 lg:grid-cols-[1fr_auto]">
+                      <div>
+                        <div className="grid gap-3 md:grid-cols-[1fr_1fr]">
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            value={pointAmount}
+                            onChange={(event) =>
+                              onPointAmountChange(event.target.value.replace(/[^\d-]/g, ""))
+                            }
+                            className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-blue-400"
+                            placeholder="포인트"
+                          />
+                          <input
+                            type="text"
+                            value={pointReason}
+                            onChange={(event) => onPointReasonChange(event.target.value)}
+                            className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-blue-400"
+                            placeholder="지급/회수 사유"
+                          />
+                        </div>
+                        <textarea
+                          value={studentNotes[student.id] ?? student.note ?? ""}
+                          onChange={(event) => onStudentNoteChange(student.id, event.target.value)}
+                          className="mt-3 min-h-24 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-blue-400"
+                          placeholder="비고"
+                        />
+                        <div className="mt-2 flex justify-end">
+                          <button
+                            type="button"
+                            disabled={savingStudentNoteId === student.id}
+                            onClick={() => onStudentNoteSave(student.id)}
+                            className="rounded-xl bg-slate-900 px-4 py-2 text-xs font-black text-white hover:bg-slate-800 disabled:bg-slate-300"
+                          >
+                            {savingStudentNoteId === student.id ? "저장 중" : "비고 저장"}
+                          </button>
+                        </div>
+                      </div>
+                      <div className="flex flex-col gap-2 lg:w-36">
+                        <button
+                          disabled={isAdjustingPoints}
+                          onClick={() => onDirectedPointAdjustment(student, "give")}
+                          className="rounded-xl bg-blue-600 px-4 py-3 text-sm font-black text-white hover:bg-blue-700 disabled:bg-slate-300"
+                        >
+                          포인트 추가
+                        </button>
+                        <button
+                          disabled={isAdjustingPoints}
+                          onClick={() => onDirectedPointAdjustment(student, "recover")}
+                          className="rounded-xl bg-rose-50 px-4 py-3 text-sm font-black text-rose-600 hover:bg-rose-100 disabled:text-rose-300"
+                        >
+                          포인트 회수
+                        </button>
+                        <label className="mt-2 flex items-center gap-2 rounded-xl bg-white px-3 py-3 text-sm font-black text-slate-600">
+                          <input
+                            type="checkbox"
+                            checked={checkedStudentIds.has(student.id)}
+                            onChange={(event) => onStudentCheck(student.id, event.target.checked)}
+                            className="h-4 w-4"
+                          />
+                          선택
+                        </label>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {!students.length && (
+              <p className="px-5 py-12 text-center text-sm font-bold text-slate-400">
+                검색된 학생이 없습니다.
+              </p>
+            )}
+          </div>
+        </section>
+
+        <aside className="rounded-2xl bg-white p-5 shadow-sm">
+          <p className="text-sm font-black text-slate-500">선택한 학생</p>
+          <div className="mt-4 space-y-2">
+            {checkedStudents.map((student) => (
+              <div key={student.id} className="rounded-xl bg-slate-50 px-4 py-3">
+                <p className="font-black">{student.name}</p>
+                <p className="mt-1 text-sm font-bold text-blue-600">
+                  {student.points.toLocaleString()} DP
+                </p>
+              </div>
+            ))}
+            {!checkedStudents.length && (
+              <p className="rounded-xl bg-slate-50 px-4 py-8 text-center text-sm font-bold text-slate-400">
+                체크 박스로 학생을 추가하세요.
+              </p>
+            )}
+          </div>
+          <div className="mt-5 grid grid-cols-2 gap-2">
+            <button
+              disabled={!checkedStudents.length}
+              onClick={() => onBatchPointModeChange("give")}
+              className="rounded-xl bg-blue-600 px-3 py-3 text-sm font-black text-white hover:bg-blue-700 disabled:bg-slate-300"
+            >
+              일괄 지급            </button>
+            <button
+              disabled={!checkedStudents.length}
+              onClick={() => onBatchPointModeChange("recover")}
+              className="rounded-xl bg-rose-50 px-3 py-3 text-sm font-black text-rose-600 hover:bg-rose-100 disabled:text-rose-300"
+            >
+              일괄 회수
+            </button>
+          </div>
+          {batchPointMode && (
+            <div className="mt-4 rounded-xl bg-slate-50 p-4">
+              <p className="text-sm font-black text-slate-600">
+                {batchPointMode === "give" ? "지급할 포인트 작성" : "회수할 포인트 작성"}
+              </p>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={batchPointAmount}
+                onChange={(event) => onBatchPointAmountChange(event.target.value.replace(/\D/g, ""))}
+                className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 font-bold outline-none focus:border-blue-400"
+              />
+              <input
+                type="text"
+                value={batchPointReason}
+                onChange={(event) => onBatchPointReasonChange(event.target.value)}
+                className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 font-bold outline-none focus:border-blue-400"
+                placeholder="일괄 지급/회수 사유"
+              />
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <button
+                  disabled={isAdjustingPoints}
+                  onClick={onBatchPointConfirm}
+                  className="rounded-xl bg-blue-600 px-3 py-3 text-sm font-black text-white hover:bg-blue-700 disabled:bg-slate-300"
+                >
+                  확인
+                </button>
+                <button
+                  disabled={isAdjustingPoints}
+                  onClick={() => {
+                    onBatchPointModeChange(null);
+                    onBatchPointAmountChange("");
+                    onBatchPointReasonChange("");
+                  }}
+                  className="rounded-xl bg-slate-100 px-3 py-3 text-sm font-black text-slate-600 hover:bg-slate-200"
+                >
+                  취소
+                </button>
+              </div>
+            </div>
+          )}
+        </aside>
+      </div>
+    );
+  }
 
   return (
     <div className="mt-8 grid gap-6 xl:grid-cols-[1fr_360px]">
@@ -1715,7 +2720,7 @@ function StudentManagementView({
           </div>
         )}
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[900px] text-left text-sm">
+          <table className="w-full min-w-[980px] text-left text-sm">
             <thead className="bg-slate-50 text-xs font-black text-slate-500">
               <tr>
                 {canEditStudents && (
@@ -1732,41 +2737,79 @@ function StudentManagementView({
                 <th className="px-5 py-3">학년</th>
                 <th className="px-5 py-3">학부모 연락처</th>
                 <th className="px-5 py-3">포인트</th>
+                <th className="px-5 py-3">비고</th>
                 <th className="px-5 py-3">상태</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {students.map((student) => (
-                <tr key={student.id} className="hover:bg-slate-50">
-                  {canEditStudents && (
-                    <td className="px-5 py-4">
-                      <input
-                        type="checkbox"
-                        checked={checkedStudentIds.has(student.id)}
-                        onChange={(event) => onStudentCheck(student.id, event.target.checked)}
-                        className="h-4 w-4"
-                      />
-                    </td>
-                  )}
-                  <td className="px-5 py-4 font-black">{student.name}</td>
-                  <td className="px-5 py-4 text-slate-500">
-                    {getPromotedGrade(student.grade, student.created_at)}
-                  </td>
-                  <td className="px-5 py-4 text-slate-500">{student.parent_phone}</td>
-                  <td className="px-5 py-4 font-black text-blue-600">
-                    {student.points.toLocaleString()} DP
-                  </td>
-                  <td className="px-5 py-4">
-                    <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">
-                      {student.is_active ? "활성" : "비활성"}
-                    </span>
-                  </td>
-                </tr>
-              ))}
+              {students.map((student) => {
+                const isNoteExpanded = expandedNoteStudentId === student.id;
+
+                return (
+                  <>
+                    <tr key={student.id} className="hover:bg-slate-50">
+                      {canEditStudents && (
+                        <td className="px-5 py-4">
+                          <input
+                            type="checkbox"
+                            checked={checkedStudentIds.has(student.id)}
+                            onChange={(event) => onStudentCheck(student.id, event.target.checked)}
+                            className="h-4 w-4"
+                          />
+                        </td>
+                      )}
+                      <td className="px-5 py-4 font-black">{student.name}</td>
+                      <td className="px-5 py-4 text-slate-500">
+                        {getPromotedGrade(student.grade, student.created_at)}
+                      </td>
+                      <td className="px-5 py-4 text-slate-500">{student.parent_phone}</td>
+                      <td className="px-5 py-4 font-black text-blue-600">
+                        {student.points.toLocaleString()} DP
+                      </td>
+                      <td className="px-5 py-4">
+                        <button
+                          type="button"
+                          onClick={() => setExpandedNoteStudentId(isNoteExpanded ? "" : student.id)}
+                          className="rounded-xl bg-slate-100 px-4 py-2 text-xs font-black text-slate-700 hover:bg-slate-200"
+                        >
+                          {isNoteExpanded ? "비고 닫기" : "비고 확인"}
+                        </button>
+                      </td>
+                      <td className="px-5 py-4">
+                        <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">
+                          {student.is_active ? "활성" : "비활성"}
+                        </span>
+                      </td>
+                    </tr>
+                    {isNoteExpanded && (
+                      <tr key={`${student.id}-note`} className="bg-slate-50">
+                        <td colSpan={canEditStudents ? 7 : 6} className="px-5 py-4">
+                          <textarea
+                            value={studentNotes[student.id] ?? student.note ?? ""}
+                            onChange={(event) => onStudentNoteChange(student.id, event.target.value)}
+                            className="min-h-24 w-full resize-y rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-600 outline-none focus:border-blue-400"
+                            placeholder="비고"
+                          />
+                          <div className="mt-3 flex justify-end">
+                            <button
+                              type="button"
+                              disabled={savingStudentNoteId === student.id}
+                              onClick={() => onStudentNoteSave(student.id)}
+                              className="rounded-xl bg-slate-900 px-4 py-2 text-xs font-black text-white hover:bg-slate-800 disabled:bg-slate-300"
+                            >
+                              {savingStudentNoteId === student.id ? "저장 중" : "비고 저장"}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </>
+                );
+              })}
               {!students.length && (
                 <tr>
                   <td
-                    colSpan={canEditStudents ? 6 : 5}
+                    colSpan={canEditStudents ? 7 : 6}
                     className="px-5 py-12 text-center font-bold text-slate-400"
                   >
                     검색 결과가 없습니다.
@@ -1794,7 +2837,7 @@ function StudentManagementView({
 	        )}
 	        {checkedStudentIds.size > 1 && (
 	          <p className="mt-3 rounded-xl bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700">
-	            포인트 수정은 한 번에 학생 1명만 가능합니다.
+	            포인트 조정은 한 번에 학생 1명만 가능합니다.
 	          </p>
 	        )}
 
@@ -1890,70 +2933,565 @@ function StudentManagementView({
 	  );
 }
 
+function TeacherManagementView({
+  teacherTab,
+  teachers,
+  retiredTeachers,
+  expandedTeacherId,
+  selectedRetiredTeacherId,
+  newTeacherLoginId,
+  newTeacherPassword,
+  newTeacherName,
+  editingTeacher,
+  teacherEditLoginId,
+  teacherEditPassword,
+  isLoadingTeachers,
+  isSavingTeacher,
+  onTeacherTabChange,
+  onExpandedTeacherChange,
+  onRetiredTeacherChange,
+  onNewTeacherLoginIdChange,
+  onNewTeacherPasswordChange,
+  onNewTeacherNameChange,
+  onAddTeacher,
+  onTeacherEditOpen,
+  onTeacherEditClose,
+  onTeacherEditLoginIdChange,
+  onTeacherEditPasswordChange,
+  onTeacherUpdate,
+}: {
+  teacherTab: "manage" | "create" | "retired";
+  teachers: TeacherSummary[];
+  retiredTeachers: RetiredTeacherSummary[];
+  expandedTeacherId: string;
+  selectedRetiredTeacherId: string;
+  newTeacherLoginId: string;
+  newTeacherPassword: string;
+  newTeacherName: string;
+  editingTeacher: TeacherSummary | null;
+  teacherEditLoginId: string;
+  teacherEditPassword: string;
+  isLoadingTeachers: boolean;
+  isSavingTeacher: boolean;
+  onTeacherTabChange: (tab: "manage" | "create" | "retired") => void;
+  onExpandedTeacherChange: (teacherId: string) => void;
+  onRetiredTeacherChange: (teacherId: string) => void;
+  onNewTeacherLoginIdChange: (id: string) => void;
+  onNewTeacherPasswordChange: (password: string) => void;
+  onNewTeacherNameChange: (name: string) => void;
+  onAddTeacher: (event: FormEvent<HTMLFormElement>) => void;
+  onTeacherEditOpen: (teacher: TeacherSummary) => void;
+  onTeacherEditClose: () => void;
+  onTeacherEditLoginIdChange: (id: string) => void;
+  onTeacherEditPasswordChange: (password: string) => void;
+  onTeacherUpdate: (retire?: boolean) => void;
+}) {
+  const expandedTeacher = teachers.find((teacher) => teacher.id === expandedTeacherId) ?? teachers[0] ?? null;
+  const selectedRetiredTeacher =
+    retiredTeachers.find((teacher) => teacher.id === selectedRetiredTeacherId) ??
+    retiredTeachers[0] ??
+    null;
+
+  return (
+    <div className="mt-8 space-y-5">
+      <div className="flex flex-wrap gap-2">
+        {[
+          { id: "manage" as const, label: "강사 관리" },
+          { id: "create" as const, label: "강사 추가" },
+          { id: "retired" as const, label: "퇴직 강사 관리" },
+        ].map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => onTeacherTabChange(tab.id)}
+            className={`rounded-xl px-4 py-3 text-sm font-black ${
+              teacherTab === tab.id
+                ? "bg-blue-600 text-white"
+                : "bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50"
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {isLoadingTeachers && (
+        <p className="rounded-2xl bg-white px-5 py-4 text-sm font-bold text-slate-500">
+          강사 정보를 불러오는 중        </p>
+      )}
+
+      {teacherTab === "manage" && (
+        <section className="overflow-hidden rounded-2xl bg-white shadow-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[900px] text-left text-sm">
+              <thead className="bg-slate-50 text-xs font-black text-slate-500">
+                <tr>
+                  <th className="px-5 py-3">강사 이름 / 강사 비밀번호</th>
+                  <th className="px-5 py-3">이번 달 코인 지급 현황</th>
+                  <th className="px-5 py-3">이번 달 코인 회수 현황</th>
+                  <th className="px-5 py-3">코인 지급 및 회수 리스트</th>
+                  <th className="px-5 py-3">정보 수정</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {teachers.map((teacher) => (
+                  <tr key={teacher.id} className="align-top hover:bg-slate-50">
+                    <td className="px-5 py-4">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-black">{teacher.passwordLabel}</p>
+                        <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-black text-blue-600">
+                          {FRANCHISE_MEMBER_ROLE_LABELS[teacher.role] ?? teacher.role}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs font-bold text-slate-400">PW는 재설정만 가능</p>
+                    </td>
+                    <td className="px-5 py-4 font-black text-blue-600">
+                      {teacher.givenThisMonth.toLocaleString()} DP
+                    </td>
+                    <td className="px-5 py-4 font-black text-rose-600">
+                      {teacher.recoveredThisMonth.toLocaleString()} DP
+                    </td>
+                    <td className="px-5 py-4">
+                      <button
+                        onClick={() => onExpandedTeacherChange(teacher.id)}
+                        className="rounded-xl bg-slate-100 px-4 py-2 text-xs font-black text-slate-700 hover:bg-slate-200"
+                      >
+                        리스트 보기
+                      </button>
+                    </td>
+                    <td className="px-5 py-4">
+                      {teacher.role === "staff" ? (
+                        <button
+                          onClick={() => onTeacherEditOpen(teacher)}
+                          className="rounded-xl bg-slate-900 px-4 py-2 text-xs font-black text-white hover:bg-slate-800"
+                        >
+                          정보 수정
+                        </button>
+                      ) : (
+                        <span className="rounded-xl bg-slate-100 px-4 py-2 text-xs font-black text-slate-500">
+                          상세 확인에서 수정
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                {!teachers.length && (
+                  <tr>
+                    <td colSpan={5} className="px-5 py-12 text-center font-bold text-slate-400">
+                      등록된 강사가 없습니다.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          {expandedTeacher && (
+            <div className="border-t border-slate-100 px-5 py-5">
+              <p className="text-sm font-black text-slate-500">
+                {expandedTeacher.passwordLabel} 코인 지급/회수 리스트              </p>
+              <div className="mt-4 max-h-96 space-y-3 overflow-y-auto pr-2">
+                {expandedTeacher.transactions.map((transaction) => (
+                  <div key={transaction.id} className="rounded-xl bg-slate-50 p-4">
+                    <p className="font-black">{transaction.studentName}</p>
+                    <p className={`mt-1 font-black ${transaction.amount >= 0 ? "text-blue-600" : "text-rose-600"}`}>
+                      {transaction.amount.toLocaleString()} DP
+                    </p>
+                    <p className="mt-1 text-sm font-bold text-slate-600">{transaction.reason}</p>
+                    <input
+                      readOnly
+                      value={transaction.note}
+                      placeholder="작성된 학생 비고 없음"
+                      className="mt-3 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-500 outline-none"
+                    />
+                  </div>
+                ))}
+                {!expandedTeacher.transactions.length && (
+                  <p className="rounded-xl bg-slate-50 px-4 py-8 text-center text-sm font-bold text-slate-400">
+                    이번 달 지급/회수 내역이 없습니다.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+        </section>
+      )}
+
+      {teacherTab === "create" && (
+        <form onSubmit={onAddTeacher} className="max-w-xl rounded-2xl bg-white p-5 shadow-sm">
+          <div className="space-y-4">
+            <label className="block">
+              <span className="text-sm font-bold text-slate-600">ID</span>
+              <input
+                type="text"
+                required
+                value={newTeacherLoginId}
+                onChange={(event) => onNewTeacherLoginIdChange(event.target.value)}
+                className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-bold outline-none focus:border-blue-400 focus:bg-white"
+                placeholder="예: Seed"
+              />
+            </label>
+            <label className="block">
+              <span className="text-sm font-bold text-slate-600">PW</span>
+              <input
+                type="text"
+                required
+                value={newTeacherPassword}
+                onChange={(event) => onNewTeacherPasswordChange(event.target.value)}
+                className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-bold outline-none focus:border-blue-400 focus:bg-white"
+              />
+            </label>
+            <label className="block">
+              <span className="text-sm font-bold text-slate-600">본명</span>
+              <input
+                type="text"
+                required
+                value={newTeacherName}
+                onChange={(event) => onNewTeacherNameChange(event.target.value)}
+                className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-bold outline-none focus:border-blue-400 focus:bg-white"
+                placeholder="예: 차윤빈"
+              />
+            </label>
+          </div>
+          <button
+            disabled={isSavingTeacher}
+            className="mt-5 w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-black text-white hover:bg-blue-700 disabled:bg-slate-300"
+          >
+            {isSavingTeacher ? "추가 중" : "확인"}
+          </button>
+        </form>
+      )}
+
+      {teacherTab === "retired" && (
+        <section className="grid gap-5 rounded-2xl bg-white p-5 shadow-sm lg:grid-cols-[260px_1fr]">
+          <aside>
+            <select
+              value={selectedRetiredTeacherId}
+              onChange={(event) => onRetiredTeacherChange(event.target.value)}
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-bold outline-none"
+            >
+              {retiredTeachers.map((teacher) => (
+                <option key={teacher.id} value={teacher.id}>
+                  {teacher.loginId}({teacher.name}) - {FRANCHISE_MEMBER_ROLE_LABELS[teacher.role] ?? teacher.role}
+                </option>
+              ))}
+            </select>
+          </aside>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] text-left text-sm">
+              <thead className="bg-slate-50 text-xs font-black text-slate-500">
+                <tr>
+                  <th className="px-5 py-3">학생 이름</th>
+                  <th className="px-5 py-3">부모님 번호</th>
+                  <th className="px-5 py-3">학년</th>
+                  <th className="px-5 py-3">지급 및 회수 포인트</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {(selectedRetiredTeacher?.students ?? []).map((student) => (
+                  <tr key={`${student.studentName}-${student.parentPhone}`}>
+                    <td className="px-5 py-4 font-black">{student.studentName}</td>
+                    <td className="px-5 py-4 text-slate-500">{student.parentPhone}</td>
+                    <td className="px-5 py-4 text-slate-500">{student.grade}</td>
+                    <td className="px-5 py-4 font-black text-blue-600">
+                      {student.points.toLocaleString()} DP
+                    </td>
+                  </tr>
+                ))}
+                {!selectedRetiredTeacher?.students.length && (
+                  <tr>
+                    <td colSpan={4} className="px-5 py-12 text-center font-bold text-slate-400">
+                      아직 지급/회수 내역이 없습니다.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {editingTeacher && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-6">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+            <p className="text-sm font-black text-blue-600">강사 정보 수정</p>
+            <h3 className="mt-1 text-2xl font-black">{editingTeacher.passwordLabel}</h3>
+            <div className="mt-6 space-y-4">
+              <label className="block">
+                <span className="text-sm font-bold text-slate-600">강사 아이디</span>
+                <input
+                  type="text"
+                  value={teacherEditLoginId}
+                  onChange={(event) => onTeacherEditLoginIdChange(event.target.value)}
+                  className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-bold outline-none focus:border-blue-400 focus:bg-white"
+                />
+              </label>
+              <label className="block">
+                <span className="text-sm font-bold text-slate-600">강사 비밀번호</span>
+                <input
+                  type="text"
+                  value={teacherEditPassword}
+                  onChange={(event) => onTeacherEditPasswordChange(event.target.value)}
+                  className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-bold outline-none focus:border-blue-400 focus:bg-white"
+                />
+              </label>
+            </div>
+            <button
+              type="button"
+              disabled={isSavingTeacher}
+              onClick={() => onTeacherUpdate(true)}
+              className="mt-4 w-full rounded-xl bg-rose-50 px-4 py-3 text-sm font-black text-rose-600 hover:bg-rose-100 disabled:text-rose-300"
+            >
+              강사 등록 해제
+            </button>
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                disabled={isSavingTeacher}
+                onClick={() => onTeacherUpdate(false)}
+                className="rounded-xl bg-blue-600 px-4 py-3 text-sm font-black text-white hover:bg-blue-700 disabled:bg-slate-300"
+              >
+                확인
+              </button>
+              <button
+                type="button"
+                disabled={isSavingTeacher}
+                onClick={onTeacherEditClose}
+                className="rounded-xl bg-slate-100 px-4 py-3 text-sm font-black text-slate-600 hover:bg-slate-200 disabled:bg-slate-50"
+              >
+                취소
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ShopManagementView({
   products,
   departmentNameById,
   showDepartment,
+  isProductModalOpen,
+  productModalMode,
+  productEmoji,
+  productImageUrl,
+  productName,
+  productPrice,
+  productStock,
+  isSavingProduct,
+  onCreateProduct,
+  onEditProduct,
+  onCloseProductModal,
+  onProductEmojiChange,
+  onProductImageChange,
+  onProductNameChange,
+  onProductPriceChange,
+  onProductStockChange,
+  onSaveProduct,
 }: {
   products: Product[];
   departmentNameById: Map<string, string>;
   showDepartment: boolean;
+  isProductModalOpen: boolean;
+  productModalMode: "create" | "edit";
+  productEmoji: string;
+  productImageUrl: string;
+  productName: string;
+  productPrice: string;
+  productStock: string;
+  isSavingProduct: boolean;
+  onCreateProduct: () => void;
+  onEditProduct: (product: Product) => void;
+  onCloseProductModal: () => void;
+  onProductEmojiChange: (emoji: string) => void;
+  onProductImageChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  onProductNameChange: (name: string) => void;
+  onProductPriceChange: (price: string) => void;
+  onProductStockChange: (stock: string) => void;
+  onSaveProduct: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   return (
-    <section className="mt-8 overflow-hidden rounded-2xl bg-white shadow-sm">
-      <div className="border-b border-slate-100 px-5 py-4">
-        <p className="text-sm font-black text-slate-500">상품 목록</p>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[780px] text-left text-sm">
-          <thead className="bg-slate-50 text-xs font-black text-slate-500">
-            <tr>
-              <th className="px-5 py-3">상품</th>
-              {showDepartment && <th className="px-5 py-3">가맹점</th>}
-              <th className="px-5 py-3">카테고리</th>
-              <th className="px-5 py-3">가격</th>
-              <th className="px-5 py-3">재고</th>
-              <th className="px-5 py-3">상태</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {products.map((product) => (
-              <tr key={product.id} className="hover:bg-slate-50">
-                <td className="px-5 py-4 font-black">
-                  <span className="mr-2">{product.emoji ?? "상품"}</span>
-                  {product.name}
-                </td>
-                {showDepartment && (
-                  <td className="px-5 py-4 text-slate-500">
-                    {departmentNameById.get(product.department_id) ?? "미지정"}
-                  </td>
-                )}
-                <td className="px-5 py-4 text-slate-500">{product.category ?? "-"}</td>
-                <td className="px-5 py-4 font-black text-blue-600">
-                  {product.price_dp.toLocaleString()} DP
-                </td>
-                <td className="px-5 py-4 font-bold">{product.stock.toLocaleString()}</td>
-                <td className="px-5 py-4">
-                  <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">
-                    {product.is_active ? "판매중" : "숨김"}
-                  </span>
-                </td>
-              </tr>
-            ))}
-            {!products.length && (
+    <div className="mt-8 space-y-4">
+      <section className="overflow-hidden rounded-2xl bg-white shadow-sm">
+        <div className="flex flex-col gap-3 border-b border-slate-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm font-black text-slate-500">상품 리스트</p>
+          <button
+            onClick={onCreateProduct}
+            className="rounded-xl bg-blue-600 px-4 py-3 text-sm font-black text-white hover:bg-blue-700"
+          >
+            상품 추가
+          </button>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[820px] text-left text-sm">
+            <thead className="bg-slate-50 text-xs font-black text-slate-500">
               <tr>
-                <td
-                  colSpan={showDepartment ? 6 : 5}
-                  className="px-5 py-12 text-center font-bold text-slate-400"
-                >
-                  표시할 상품이 없습니다.
-                </td>
+                <th className="px-5 py-3">상품 아이콘</th>
+                <th className="px-5 py-3">상품 이름</th>
+                {showDepartment && <th className="px-5 py-3">가맹점</th>}
+                <th className="px-5 py-3">상품 가격</th>
+                <th className="px-5 py-3">상품 재고</th>
+                <th className="px-5 py-3">상품 수정</th>
               </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </section>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {products.map((product) => (
+                <tr key={product.id} className="hover:bg-slate-50">
+                  <td className="px-5 py-4">
+                    <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-xl bg-slate-100 text-xl font-black">
+                      {product.image_url ? (
+                        <div
+                          className="h-full w-full bg-cover bg-center"
+                          style={{ backgroundImage: `url(${product.image_url})` }}
+                        />
+                      ) : (
+                        product.emoji ?? "상품"
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-5 py-4 font-black">{product.name}</td>
+                  {showDepartment && (
+                    <td className="px-5 py-4 text-slate-500">
+                      {departmentNameById.get(product.department_id) ?? "미지정"}
+                    </td>
+                  )}
+                  <td className="px-5 py-4 font-black text-blue-600">
+                    {product.price_dp.toLocaleString()} DP
+                  </td>
+                  <td className="px-5 py-4 font-black text-slate-700">
+                    {product.stock.toLocaleString()}개
+                  </td>
+                  <td className="px-5 py-4">
+                    <button
+                      onClick={() => onEditProduct(product)}
+                      className="rounded-xl bg-slate-900 px-4 py-2 text-xs font-black text-white hover:bg-slate-800"
+                    >
+                      상품 수정
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {!products.length && (
+                <tr>
+                  <td
+                    colSpan={showDepartment ? 6 : 5}
+                    className="px-5 py-12 text-center font-bold text-slate-400"
+                  >
+                    아직 상품이 없습니다.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {isProductModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-6">
+          <form onSubmit={onSaveProduct} className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl">
+            <div>
+              <p className="text-sm font-black text-blue-600">
+                {productModalMode === "create" ? "상품 추가" : "상품 수정"}
+              </p>
+              <h3 className="mt-1 text-2xl font-black">
+                {productModalMode === "create" ? "새 상품" : productName || "상품"}
+              </h3>
+            </div>
+            <div className="mt-6 space-y-4">
+              <label className="block">
+                <span className="text-sm font-bold text-slate-600">
+                  {productModalMode === "create" ? "추가할 상품 아이콘" : "상품 아이콘"}
+                </span>
+                <input
+                  type="text"
+                  value={productEmoji}
+                  onChange={(event) => onProductEmojiChange(event.target.value)}
+                  className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-bold outline-none focus:border-blue-400 focus:bg-white"
+                  placeholder="예: 사탕"
+                />
+              </label>
+              <label className="block">
+                <span className="text-sm font-bold text-slate-600">
+                  {productModalMode === "create"
+                    ? "추가할 상품 선물 이미지"
+                    : "상품 선물 이미지"}
+                </span>
+                <label className="mt-2 flex h-40 cursor-pointer items-center justify-center overflow-hidden rounded-xl border border-dashed border-slate-300 bg-slate-50 text-sm font-black text-slate-500 hover:bg-slate-100">
+                  {productImageUrl ? (
+                    <div
+                      className="h-full w-full bg-cover bg-center"
+                      style={{ backgroundImage: `url(${productImageUrl})` }}
+                    />
+                  ) : (
+                    "이미지 업로드"
+                  )}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="sr-only"
+                    onChange={onProductImageChange}
+                  />
+                </label>
+              </label>
+              <label className="block">
+                <span className="text-sm font-bold text-slate-600">상품 이름</span>
+                <input
+                  type="text"
+                  required
+                  value={productName}
+                  onChange={(event) => onProductNameChange(event.target.value)}
+                  className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-bold outline-none focus:border-blue-400 focus:bg-white"
+                />
+              </label>
+              <label className="block">
+                <span className="text-sm font-bold text-slate-600">상품 가격</span>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  required
+                  value={productPrice}
+                  onChange={(event) => onProductPriceChange(event.target.value.replace(/\D/g, ""))}
+                  className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-bold outline-none focus:border-blue-400 focus:bg-white"
+                />
+              </label>
+              <label className="block">
+                <span className="text-sm font-bold text-slate-600">상품 재고</span>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  required
+                  value={productStock}
+                  onChange={(event) => onProductStockChange(event.target.value.replace(/\D/g, ""))}
+                  className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-bold outline-none focus:border-blue-400 focus:bg-white"
+                />
+              </label>
+            </div>
+            <div className="mt-6 grid grid-cols-2 gap-3">
+              <button
+                disabled={isSavingProduct}
+                className="rounded-xl bg-blue-600 px-4 py-3 text-sm font-black text-white hover:bg-blue-700 disabled:bg-slate-300"
+              >
+                {productModalMode === "create"
+                  ? isSavingProduct
+                    ? "추가 중"
+                    : "추가 확인"
+                  : isSavingProduct
+                    ? "수정 중"
+                    : "확인"}
+              </button>
+              <button
+                type="button"
+                disabled={isSavingProduct}
+                onClick={onCloseProductModal}
+                className="rounded-xl bg-slate-100 px-4 py-3 text-sm font-black text-slate-600 hover:bg-slate-200 disabled:bg-slate-50"
+              >
+                {productModalMode === "create" ? "추가 취소" : "취소"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1968,10 +3506,21 @@ function DepartmentManagementView({
   resetPassword,
   resetPasswordConfirm,
   isResettingPassword,
+  isCredentialModalOpen,
+  isEditingCredentials,
+  credentialLoginId,
+  credentialPassword,
+  isSavingCredentials,
   newDepartmentName,
+  newDepartmentOwnerName,
+  newDepartmentManagerId,
+  newDepartmentManagerPassword,
   isDepartmentModalOpen,
   isSavingDepartment,
   onNewDepartmentNameChange,
+  onNewDepartmentOwnerNameChange,
+  onNewDepartmentManagerIdChange,
+  onNewDepartmentManagerPasswordChange,
   onAddDepartment,
   onDepartmentModalOpenChange,
   onFranchiseChange,
@@ -1981,6 +3530,13 @@ function DepartmentManagementView({
   onResetPasswordChange,
   onResetPasswordConfirmChange,
   onResetAdminPassword,
+  onCredentialModalOpen,
+  onCredentialModalClose,
+  onCredentialEditStart,
+  onCredentialEditCancel,
+  onCredentialLoginIdChange,
+  onCredentialPasswordChange,
+  onCredentialUpdate,
 }: {
   departments: Department[];
   canMutateFranchises: boolean;
@@ -1992,10 +3548,21 @@ function DepartmentManagementView({
   resetPassword: string;
   resetPasswordConfirm: string;
   isResettingPassword: boolean;
+  isCredentialModalOpen: boolean;
+  isEditingCredentials: boolean;
+  credentialLoginId: string;
+  credentialPassword: string;
+  isSavingCredentials: boolean;
   newDepartmentName: string;
+  newDepartmentOwnerName: string;
+  newDepartmentManagerId: string;
+  newDepartmentManagerPassword: string;
   isDepartmentModalOpen: boolean;
   isSavingDepartment: boolean;
   onNewDepartmentNameChange: (name: string) => void;
+  onNewDepartmentOwnerNameChange: (name: string) => void;
+  onNewDepartmentManagerIdChange: (id: string) => void;
+  onNewDepartmentManagerPasswordChange: (password: string) => void;
   onAddDepartment: (event: FormEvent<HTMLFormElement>) => void;
   onDepartmentModalOpenChange: (isOpen: boolean) => void;
   onFranchiseChange: (departmentId: string) => void;
@@ -2005,8 +3572,19 @@ function DepartmentManagementView({
   onResetPasswordChange: (password: string) => void;
   onResetPasswordConfirmChange: (password: string) => void;
   onResetAdminPassword: (event: FormEvent<HTMLFormElement>) => void;
+  onCredentialModalOpen: () => void;
+  onCredentialModalClose: () => void;
+  onCredentialEditStart: () => void;
+  onCredentialEditCancel: () => void;
+  onCredentialLoginIdChange: (id: string) => void;
+  onCredentialPasswordChange: (password: string) => void;
+  onCredentialUpdate: () => void;
 }) {
   const selectedDepartment = franchiseSummary?.selectedDepartment ?? null;
+  const credentialTarget =
+    franchiseSummary?.accounts.find((account) => account.role === "manager") ??
+    franchiseSummary?.accounts[0] ??
+    null;
 
   return (
     <div className="mt-8 space-y-6">
@@ -2027,6 +3605,7 @@ function DepartmentManagementView({
 	              onChange={(event) => onFranchiseChange(event.target.value)}
 	              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-bold outline-none focus:border-blue-400 focus:bg-white lg:w-72"
 	            >
+                {!selectedFranchiseId && <option value="">가맹점 선택</option>}
 	              {departments.map((department) => (
 	                <option key={department.id} value={department.id}>
 	                  {department.name}
@@ -2034,12 +3613,21 @@ function DepartmentManagementView({
 	              ))}
 	            </select>
 	            {canMutateFranchises && (
+                <>
 	              <button
 	                onClick={() => onDepartmentModalOpenChange(true)}
 	                className="rounded-xl bg-blue-600 px-4 py-3 text-sm font-black text-white hover:bg-blue-700"
 	              >
 	                가맹점 추가
 	              </button>
+	              <button
+	                onClick={onCredentialModalOpen}
+	                disabled={!credentialTarget}
+	                className="rounded-xl bg-slate-900 px-4 py-3 text-sm font-black text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+	              >
+	                상세 확인
+	              </button>
+                </>
 	            )}
 	          </div>
 	        </div>
@@ -2053,7 +3641,7 @@ function DepartmentManagementView({
           </p>
         </section>
         <section className="rounded-2xl bg-white p-5 shadow-sm">
-          <p className="text-sm font-black text-slate-500">상품 구매 소진 포인트</p>
+          <p className="text-sm font-black text-slate-500">상품 구매 사진 확인</p>
           <p className="mt-3 text-3xl font-black text-slate-900">
             {(franchiseSummary?.spentPurchasePoints ?? 0).toLocaleString()} DP
           </p>
@@ -2074,7 +3662,12 @@ function DepartmentManagementView({
                     : "bg-slate-50 text-slate-700 hover:bg-slate-100"
                 }`}
               >
-                <span className="block text-sm font-black">{teacher.name}</span>
+                <span className="flex items-center gap-2 text-sm font-black">
+                  {teacher.name}
+                  <span className="rounded-full bg-white/20 px-2 py-0.5 text-xs font-black ring-1 ring-current/20">
+                    {FRANCHISE_MEMBER_ROLE_LABELS[teacher.role] ?? teacher.role}
+                  </span>
+                </span>
                 <span className="mt-1 block text-xs font-bold opacity-80">
                   지급 {teacher.totalAwardedPoints.toLocaleString()} DP
                 </span>
@@ -2082,7 +3675,7 @@ function DepartmentManagementView({
             ))}
             {!franchiseSummary?.teachers.length && (
               <p className="rounded-xl bg-slate-50 px-4 py-8 text-center text-sm font-bold text-slate-400">
-                표시할 강사가 없습니다.
+                아직 강사가 없습니다.
               </p>
             )}
           </div>
@@ -2107,17 +3700,17 @@ function DepartmentManagementView({
               <label className="block">
                 <span className="text-xs font-black text-slate-500">새 비밀번호</span>
                 <input
-                  type="password"
+                  type="text"
                   value={resetPassword}
                   onChange={(event) => onResetPasswordChange(event.target.value)}
                   className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold outline-none focus:border-blue-400 focus:bg-white"
-                  placeholder="6자리 이상"
+                  placeholder="4자리 이상"
                 />
               </label>
               <label className="block">
                 <span className="text-xs font-black text-slate-500">비밀번호 확인</span>
                 <input
-                  type="password"
+                  type="text"
                   value={resetPasswordConfirm}
                   onChange={(event) => onResetPasswordConfirmChange(event.target.value)}
                   className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold outline-none focus:border-blue-400 focus:bg-white"
@@ -2167,7 +3760,7 @@ function DepartmentManagementView({
 
       <section className="overflow-hidden rounded-2xl bg-white shadow-sm">
         <div className="flex flex-col gap-3 border-b border-slate-100 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
-          <p className="text-sm font-black text-slate-500">지정 가맹 학생</p>
+          <p className="text-sm font-black text-slate-500">지점 가입 학생</p>
           <form onSubmit={onFranchiseStudentSearch} className="flex gap-2">
             <input
               type="text"
@@ -2205,7 +3798,7 @@ function DepartmentManagementView({
               {!franchiseSummary?.students.length && (
                 <tr>
                   <td colSpan={4} className="px-5 py-12 text-center font-bold text-slate-400">
-                    표시할 학생이 없습니다.
+                    아직 학생이 없습니다.
                   </td>
                 </tr>
               )}
@@ -2214,9 +3807,62 @@ function DepartmentManagementView({
         </div>
       </section>
 
+      {isCredentialModalOpen && canMutateFranchises && credentialTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-6">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-black text-blue-600">manager 계정</p>
+                <h3 className="mt-1 text-2xl font-black">{credentialTarget.name}</h3>
+              </div>
+            </div>
+            <div className="mt-6 space-y-4">
+              <label className="block">
+                <span className="text-sm font-bold text-slate-600">ID</span>
+                <input
+                  type="text"
+                  readOnly={!isEditingCredentials}
+                  value={credentialLoginId}
+                  onChange={(event) => onCredentialLoginIdChange(event.target.value)}
+                  className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-bold outline-none focus:border-blue-400 focus:bg-white read-only:text-slate-500"
+                />
+              </label>
+              <label className="block">
+                <span className="text-sm font-bold text-slate-600">PW</span>
+                <input
+                  type="text"
+                  readOnly={!isEditingCredentials}
+                  value={isEditingCredentials ? credentialPassword : "저장된 비밀번호는 확인할 수 없습니다"}
+                  onChange={(event) => onCredentialPasswordChange(event.target.value)}
+                  className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-bold outline-none focus:border-blue-400 focus:bg-white read-only:text-slate-500"
+                />
+              </label>
+            </div>
+            <div className="mt-6 grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                disabled={isSavingCredentials}
+                onClick={isEditingCredentials ? onCredentialUpdate : onCredentialEditStart}
+                className="rounded-xl bg-blue-600 px-4 py-3 text-sm font-black text-white hover:bg-blue-700 disabled:bg-slate-300"
+              >
+                {isEditingCredentials ? (isSavingCredentials ? "저장 중" : "확인") : "수정"}
+              </button>
+              <button
+                type="button"
+                disabled={isSavingCredentials}
+                onClick={isEditingCredentials ? onCredentialEditCancel : onCredentialModalClose}
+                className="rounded-xl bg-slate-100 px-4 py-3 text-sm font-black text-slate-600 hover:bg-slate-200 disabled:bg-slate-50"
+              >
+                {isEditingCredentials ? "취소" : "닫기"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {isDepartmentModalOpen && canMutateFranchises && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-6">
-          <form onSubmit={onAddDepartment} className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+          <form onSubmit={onAddDepartment} className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-sm font-black text-blue-600">가맹점 관리</p>
@@ -2239,7 +3885,44 @@ function DepartmentManagementView({
                 value={newDepartmentName}
                 onChange={(event) => onNewDepartmentNameChange(event.target.value)}
                 className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-bold outline-none focus:border-blue-400 focus:bg-white"
-                placeholder="예: 잠실"
+                placeholder="예: 서초"
+              />
+            </label>
+            <label className="mt-4 block">
+              <span className="text-sm font-bold text-slate-600">가맹점 주인 이름</span>
+              <input
+                type="text"
+                required
+                maxLength={50}
+                value={newDepartmentOwnerName}
+                onChange={(event) => onNewDepartmentOwnerNameChange(event.target.value)}
+                className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-bold outline-none focus:border-blue-400 focus:bg-white"
+                placeholder="관리자 이름"
+              />
+            </label>
+            <label className="mt-4 block">
+              <span className="text-sm font-bold text-slate-600">manager ID</span>
+              <input
+                type="text"
+                required
+                autoCapitalize="none"
+                maxLength={50}
+                value={newDepartmentManagerId}
+                onChange={(event) => onNewDepartmentManagerIdChange(event.target.value)}
+                className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-bold outline-none focus:border-blue-400 focus:bg-white"
+                placeholder="로그인 ID"
+              />
+            </label>
+            <label className="mt-4 block">
+              <span className="text-sm font-bold text-slate-600">manager PW</span>
+              <input
+                type="text"
+                required
+                minLength={6}
+                value={newDepartmentManagerPassword}
+                onChange={(event) => onNewDepartmentManagerPasswordChange(event.target.value)}
+                className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-bold outline-none focus:border-blue-400 focus:bg-white"
+                placeholder="6자 이상"
               />
             </label>
             <button
@@ -2313,7 +3996,7 @@ function PinManagementView({
               onClick={() => onGeneratePin(department.name)}
               className="rounded-xl bg-slate-100 px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-200"
             >
-              {savedPinDepartments.has(department.name) ? "PIN 수정" : "PIN 생성"}
+              {savedPinDepartments.has(department.name) ? "PIN 설정" : "PIN 생성"}
             </button>
             <button
               disabled={savingPinDepartmentId === department.name}
@@ -2333,7 +4016,7 @@ function PinManagementView({
         ))}
         {!departments.length && (
           <div className="px-5 py-12 text-center font-bold text-slate-400">
-            표시할 가맹점이 없습니다.
+            아직 가맹점이 없습니다.
           </div>
         )}
       </div>
@@ -2418,7 +4101,7 @@ function AnnouncementManagementView({
               value={content}
               onChange={(event) => onContentChange(event.target.value)}
               className="mt-2 min-h-52 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-bold outline-none focus:border-blue-400 focus:bg-white"
-              placeholder="공지 내용을 입력하세요."
+              placeholder="공지 내용을 입력하세요"
             />
           </label>
           <button
@@ -2432,7 +4115,7 @@ function AnnouncementManagementView({
         <div>
           <div className="flex flex-col gap-3 border-b border-slate-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-sm font-black text-slate-500">
-              {isLoading ? "공지 불러오는 중" : "작성한 공지"}
+              {isLoading ? "공지 불러오는 중" : "작성된 공지"}
             </p>
             <select
               value={order}
@@ -2515,7 +4198,7 @@ function AnnouncementManagementView({
                 {!announcements.length && (
                   <tr>
                     <td colSpan={3} className="px-5 py-12 text-center font-bold text-slate-400">
-                      작성한 공지가 없습니다.
+                      작성된 공지가 없습니다.
                     </td>
                   </tr>
                 )}

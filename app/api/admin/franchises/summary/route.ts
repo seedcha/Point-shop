@@ -99,6 +99,7 @@ export async function GET(request: NextRequest) {
       selectedDepartment: null,
       totalStudentPoints: 0,
       spentPurchasePoints: 0,
+      accounts: [],
       teachers: [],
       selectedTeacher: null,
       teacherTransactions: [],
@@ -146,7 +147,7 @@ export async function GET(request: NextRequest) {
 
   const { data: teacherRows, error: teacherError } = await supabaseAdmin
     .from("admin_profiles")
-    .select("id, manager_name, role")
+    .select("id, login_id, manager_name, role")
     .eq("department_id", selectedDepartment.id)
     .eq("is_active", true)
     .in("role", ["manager", "staff"])
@@ -154,6 +155,17 @@ export async function GET(request: NextRequest) {
 
   if (teacherError) {
     return NextResponse.json({ error: "강사 정보를 불러오지 못했습니다." }, { status: 500 });
+  }
+
+  const { data: accountRows, error: accountError } = await supabaseAdmin
+    .from("admin_profiles")
+    .select("id, login_id, manager_name, role")
+    .eq("department_id", selectedDepartment.id)
+    .eq("is_active", true)
+    .order("manager_name");
+
+  if (accountError) {
+    return NextResponse.json({ error: "관리자 계정 정보를 불러오지 못했습니다." }, { status: 500 });
   }
 
   const { data: teacherTransactionsData, error: teacherTransactionsError } = await supabaseAdmin
@@ -171,6 +183,7 @@ export async function GET(request: NextRequest) {
   const allTeacherTransactions = (teacherTransactionsData ?? []) as TransactionRow[];
   const teachers = (teacherRows ?? []).map((teacher) => ({
     id: teacher.id,
+    loginId: teacher.login_id,
     name: teacher.manager_name,
     role: teacher.role,
     totalAwardedPoints: allTeacherTransactions
@@ -199,6 +212,12 @@ export async function GET(request: NextRequest) {
     selectedDepartment,
     totalStudentPoints,
     spentPurchasePoints,
+    accounts: (accountRows ?? []).map((account) => ({
+      id: account.id,
+      loginId: account.login_id,
+      name: account.manager_name,
+      role: account.role,
+    })),
     teachers,
     selectedTeacher,
     teacherTransactions,
