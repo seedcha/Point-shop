@@ -205,7 +205,7 @@ function DashboardContent() {
 
     if (!response.ok) {
       const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-      alert(payload?.error ?? "상품을 구매하지 못했습니다.");
+      setMessage(payload?.error ?? "상품을 구매하지 못했습니다.");
       setIsPurchasing(false);
       return;
     }
