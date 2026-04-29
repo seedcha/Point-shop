@@ -76,7 +76,7 @@ export async function GET(request: NextRequest) {
   const { data: transactionRows, error: transactionError } = teacherIds.length
     ? await supabaseAdmin
         .from("point_transactions")
-        .select("id, student_id, amount, reason, adjusted_by, created_at, students(name, parent_phone, grade)")
+        .select("id, student_id, amount, reason, adjusted_by, created_at, students(name, parent_phone, grade, note)")
         .eq("department_id", departmentId)
         .in("adjusted_by", teacherIds)
         .gte("created_at", start)
@@ -120,7 +120,7 @@ export async function GET(request: NextRequest) {
             studentName: student?.name ?? "학생 미상",
             amount: transaction.amount,
             reason: transaction.reason,
-            note: "",
+            note: student?.note ?? "",
             createdAt: transaction.created_at,
           };
         }),

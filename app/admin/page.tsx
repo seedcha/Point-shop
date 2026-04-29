@@ -43,6 +43,7 @@ type Student = {
   name: string;
   grade: string;
   points: number;
+  note: string;
   is_active: boolean;
   created_at: string;
 };
@@ -314,6 +315,7 @@ export default function AdminPage() {
   const [pointReason, setPointReason] = useState("포인트 조정");
   const [isAdjustingPoints, setIsAdjustingPoints] = useState(false);
   const [studentNotes, setStudentNotes] = useState<Record<string, string>>({});
+  const [savingStudentNoteId, setSavingStudentNoteId] = useState<string | null>(null);
   const [batchPointMode, setBatchPointMode] = useState<"give" | "recover" | null>(null);
   const [batchPointAmount, setBatchPointAmount] = useState("");
   const [batchPointReason, setBatchPointReason] = useState("");
@@ -446,11 +448,11 @@ export default function AdminPage() {
       currentSession.role === "master"
         ? await supabase
             .from("students")
-            .select("id, department_id, teacher_id, parent_phone, name, grade, points, is_active, created_at")
+            .select("id, department_id, teacher_id, parent_phone, name, grade, points, note, is_active, created_at")
             .order("created_at", { ascending: false })
         : await supabase
             .from("students")
-            .select("id, department_id, teacher_id, parent_phone, name, grade, points, is_active, created_at")
+            .select("id, department_id, teacher_id, parent_phone, name, grade, points, note, is_active, created_at")
             .eq("department_id", currentSession.departmentId)
             .order("created_at", { ascending: false });
 
@@ -1727,18 +1729,42 @@ export default function AdminPage() {
     setIsAdjustingPoints(false);
   };
 
-  const handleStudentNoteChange = async (studentId: string, note: string) => {
+  const handleStudentNoteChange = (studentId: string, note: string) => {
     setStudentNotes((currentNotes) => ({ ...currentNotes, [studentId]: note }));
+  };
+
+  const handleStudentNoteSave = async (studentId: string) => {
+    const note = studentNotes[studentId] ?? students.find((student) => student.id === studentId)?.note ?? "";
+
+    setSavingStudentNoteId(studentId);
+    setDataMessage("");
 
     const { data: sessionData } = await supabase.auth.getSession();
-    await fetch("/api/admin/student-notes", {
+    const response = await fetch("/api/admin/student-notes", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${sessionData.session?.access_token ?? ""}`,
       },
-      body: JSON.stringify({ studentId, note }),
+      body: JSON.stringify({
+        studentId,
+        note,
+        departmentId: session?.role === "master" ? selectedFranchiseId : undefined,
+      }),
     });
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      setDataMessage(payload?.error ?? "비고를 저장하지 못했습니다.");
+      setSavingStudentNoteId(null);
+      return;
+    }
+
+    setStudents((currentStudents) =>
+      currentStudents.map((student) => (student.id === studentId ? { ...student, note } : student))
+    );
+    setDataMessage("비고를 저장했습니다.");
+    setSavingStudentNoteId(null);
   };
 
   const handleStudentExcelUpload = (file: File | null) => {
@@ -2075,6 +2101,7 @@ export default function AdminPage() {
 	              batchPointAmount={batchPointAmount}
 	              batchPointReason={batchPointReason}
 	              isAdjustingPoints={isAdjustingPoints}
+	              savingStudentNoteId={savingStudentNoteId}
 	              selectedUploadFile={selectedUploadFile}
 	              newStudentName={newStudentName}
 	              newStudentGrade={newStudentGrade}
@@ -2092,6 +2119,7 @@ export default function AdminPage() {
 	              onAdjustPoints={handlePointAdjustment}
 	              onDirectedPointAdjustment={handleDirectedPointAdjustment}
 	              onStudentNoteChange={handleStudentNoteChange}
+	              onStudentNoteSave={handleStudentNoteSave}
 	              onBatchPointModeChange={setBatchPointMode}
 	              onBatchPointAmountChange={setBatchPointAmount}
 	              onBatchPointReasonChange={setBatchPointReason}
@@ -2293,6 +2321,7 @@ function StudentManagementView({
   batchPointAmount,
   batchPointReason,
   isAdjustingPoints,
+  savingStudentNoteId,
   selectedUploadFile,
   newStudentName,
   newStudentGrade,
@@ -2310,6 +2339,7 @@ function StudentManagementView({
   onAdjustPoints,
   onDirectedPointAdjustment,
   onStudentNoteChange,
+  onStudentNoteSave,
   onBatchPointModeChange,
   onBatchPointAmountChange,
   onBatchPointReasonChange,
@@ -2335,6 +2365,7 @@ function StudentManagementView({
   batchPointAmount: string;
   batchPointReason: string;
   isAdjustingPoints: boolean;
+  savingStudentNoteId: string | null;
   selectedUploadFile: string;
   newStudentName: string;
   newStudentGrade: string;
@@ -2352,6 +2383,7 @@ function StudentManagementView({
   onAdjustPoints: () => void;
   onDirectedPointAdjustment: (student: Student, direction: "give" | "recover") => void;
   onStudentNoteChange: (studentId: string, note: string) => void;
+  onStudentNoteSave: (studentId: string) => void;
   onBatchPointModeChange: (mode: "give" | "recover" | null) => void;
   onBatchPointAmountChange: (amount: string) => void;
   onBatchPointReasonChange: (reason: string) => void;
@@ -2370,6 +2402,7 @@ function StudentManagementView({
   const allStudentsChecked = students.length > 0 && checkedStudentIds.size === students.length;
   const checkedStudents = students.filter((student) => checkedStudentIds.has(student.id));
   const [expandedStudentId, setExpandedStudentId] = useState("");
+  const [expandedNoteStudentId, setExpandedNoteStudentId] = useState("");
 
   if (isPointFocused) {
     return (
@@ -2450,11 +2483,21 @@ function StudentManagementView({
                           />
                         </div>
                         <textarea
-                          value={studentNotes[student.id] ?? ""}
+                          value={studentNotes[student.id] ?? student.note ?? ""}
                           onChange={(event) => onStudentNoteChange(student.id, event.target.value)}
                           className="mt-3 min-h-24 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-blue-400"
                           placeholder="비고"
                         />
+                        <div className="mt-2 flex justify-end">
+                          <button
+                            type="button"
+                            disabled={savingStudentNoteId === student.id}
+                            onClick={() => onStudentNoteSave(student.id)}
+                            className="rounded-xl bg-slate-900 px-4 py-2 text-xs font-black text-white hover:bg-slate-800 disabled:bg-slate-300"
+                          >
+                            {savingStudentNoteId === student.id ? "저장 중" : "비고 저장"}
+                          </button>
+                        </div>
                       </div>
                       <div className="flex flex-col gap-2 lg:w-36">
                         <button
@@ -2664,7 +2707,7 @@ function StudentManagementView({
           </div>
         )}
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[900px] text-left text-sm">
+          <table className="w-full min-w-[980px] text-left text-sm">
             <thead className="bg-slate-50 text-xs font-black text-slate-500">
               <tr>
                 {canEditStudents && (
@@ -2681,41 +2724,79 @@ function StudentManagementView({
                 <th className="px-5 py-3">학년</th>
                 <th className="px-5 py-3">학부모 연락처</th>
                 <th className="px-5 py-3">포인트</th>
+                <th className="px-5 py-3">비고</th>
                 <th className="px-5 py-3">상태</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {students.map((student) => (
-                <tr key={student.id} className="hover:bg-slate-50">
-                  {canEditStudents && (
-                    <td className="px-5 py-4">
-                      <input
-                        type="checkbox"
-                        checked={checkedStudentIds.has(student.id)}
-                        onChange={(event) => onStudentCheck(student.id, event.target.checked)}
-                        className="h-4 w-4"
-                      />
-                    </td>
-                  )}
-                  <td className="px-5 py-4 font-black">{student.name}</td>
-                  <td className="px-5 py-4 text-slate-500">
-                    {getPromotedGrade(student.grade, student.created_at)}
-                  </td>
-                  <td className="px-5 py-4 text-slate-500">{student.parent_phone}</td>
-                  <td className="px-5 py-4 font-black text-blue-600">
-                    {student.points.toLocaleString()} DP
-                  </td>
-                  <td className="px-5 py-4">
-                    <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">
-                      {student.is_active ? "활성" : "비활성"}
-                    </span>
-                  </td>
-                </tr>
-              ))}
+              {students.map((student) => {
+                const isNoteExpanded = expandedNoteStudentId === student.id;
+
+                return (
+                  <>
+                    <tr key={student.id} className="hover:bg-slate-50">
+                      {canEditStudents && (
+                        <td className="px-5 py-4">
+                          <input
+                            type="checkbox"
+                            checked={checkedStudentIds.has(student.id)}
+                            onChange={(event) => onStudentCheck(student.id, event.target.checked)}
+                            className="h-4 w-4"
+                          />
+                        </td>
+                      )}
+                      <td className="px-5 py-4 font-black">{student.name}</td>
+                      <td className="px-5 py-4 text-slate-500">
+                        {getPromotedGrade(student.grade, student.created_at)}
+                      </td>
+                      <td className="px-5 py-4 text-slate-500">{student.parent_phone}</td>
+                      <td className="px-5 py-4 font-black text-blue-600">
+                        {student.points.toLocaleString()} DP
+                      </td>
+                      <td className="px-5 py-4">
+                        <button
+                          type="button"
+                          onClick={() => setExpandedNoteStudentId(isNoteExpanded ? "" : student.id)}
+                          className="rounded-xl bg-slate-100 px-4 py-2 text-xs font-black text-slate-700 hover:bg-slate-200"
+                        >
+                          {isNoteExpanded ? "비고 닫기" : "비고 확인"}
+                        </button>
+                      </td>
+                      <td className="px-5 py-4">
+                        <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">
+                          {student.is_active ? "활성" : "비활성"}
+                        </span>
+                      </td>
+                    </tr>
+                    {isNoteExpanded && (
+                      <tr key={`${student.id}-note`} className="bg-slate-50">
+                        <td colSpan={canEditStudents ? 7 : 6} className="px-5 py-4">
+                          <textarea
+                            value={studentNotes[student.id] ?? student.note ?? ""}
+                            onChange={(event) => onStudentNoteChange(student.id, event.target.value)}
+                            className="min-h-24 w-full resize-y rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-600 outline-none focus:border-blue-400"
+                            placeholder="비고"
+                          />
+                          <div className="mt-3 flex justify-end">
+                            <button
+                              type="button"
+                              disabled={savingStudentNoteId === student.id}
+                              onClick={() => onStudentNoteSave(student.id)}
+                              className="rounded-xl bg-slate-900 px-4 py-2 text-xs font-black text-white hover:bg-slate-800 disabled:bg-slate-300"
+                            >
+                              {savingStudentNoteId === student.id ? "저장 중" : "비고 저장"}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </>
+                );
+              })}
               {!students.length && (
                 <tr>
                   <td
-                    colSpan={canEditStudents ? 6 : 5}
+                    colSpan={canEditStudents ? 7 : 6}
                     className="px-5 py-12 text-center font-bold text-slate-400"
                   >
                     검색 결과가 없습니다.
