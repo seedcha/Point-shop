@@ -84,13 +84,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "학생 추가 권한이 없습니다." }, { status: 403 });
   }
 
-  const body = (await request.json()) as { students?: StudentInput[] };
+  const body = (await request.json()) as { departmentId?: string; students?: StudentInput[] };
+  const departmentId =
+    admin.profile.role === "master"
+      ? body.departmentId?.trim() ?? admin.profile.department_id
+      : admin.profile.department_id;
   const students = (body.students ?? [])
     .map(normalizeStudent)
     .filter(Boolean)
     .map((student) => ({
       ...student,
-      department_id: admin.profile.department_id,
+      department_id: departmentId,
       teacher_id: admin.profile.id,
     }));
 
