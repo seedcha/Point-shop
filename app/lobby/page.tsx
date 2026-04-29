@@ -16,31 +16,36 @@ export default function LobbyPage() {
   const [phone, setPhone] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [studentChoices, setStudentChoices] = useState<LoginStudent[]>([]);
+  const [errorMessage, setErrorMessage] = useState("");
   const router = useRouter();
 
   const formatPhone = (value: string) => value.replace(/\D/g, "").slice(0, 8);
 
   const handleNumberClick = (num: number) => {
+    setErrorMessage("");
     if (phone.length < 8) {
       setPhone(phone + num.toString());
     }
   };
 
   const handlePhoneChange = (value: string) => {
+    setErrorMessage("");
     setPhone(formatPhone(value));
   };
 
   const handleDelete = () => {
+    setErrorMessage("");
     setPhone(phone.slice(0, -1));
   };
 
   const handleSubmit = async () => {
     if (phone.length !== 8) {
-      alert("전화번호 8자리를 모두 입력해주세요.");
+      setErrorMessage("전화번호 8자리를 모두 입력해주세요.");
       return;
     }
 
     setIsSubmitting(true);
+    setErrorMessage("");
 
     const response = await fetch("/api/student/login", {
       method: "POST",
@@ -52,7 +57,7 @@ export default function LobbyPage() {
 
     if (!response.ok) {
       const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-      alert(payload?.error ?? "등록되지 않은 전화번호입니다. 다시 확인해주세요!");
+      setErrorMessage(payload?.error ?? "등록되지 않은 전화번호입니다. 다시 확인해주세요!");
       setPhone("");
       setIsSubmitting(false);
       return;
@@ -126,6 +131,12 @@ export default function LobbyPage() {
         <p className="mb-8 text-sm text-gray-500">학부모 전화번호 뒷자리를 입력해주세요</p>
 
         <div className="flex w-full flex-col items-center gap-8">
+          {errorMessage && (
+            <div className="w-full rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-center text-sm font-black text-amber-700">
+              {errorMessage}
+            </div>
+          )}
+
           <div className="flex w-full items-end justify-center gap-4 rounded-3xl bg-slate-100/80 px-6 py-5 shadow-inner">
             <span className="pb-1 text-4xl font-black tracking-wider text-slate-900">010</span>
             <span className="pb-1 text-4xl font-black text-slate-400">-</span>

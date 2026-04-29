@@ -1062,7 +1062,7 @@ export default function AdminPage() {
     const nextBalance = selectedStudent.points + parsedAmount;
 
     if (nextBalance < 0) {
-      alert("DP가 0보다 작습니다.");
+      setDataMessage("DP가 0보다 작습니다.");
       return;
     }
 
