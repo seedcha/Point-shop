@@ -315,6 +315,7 @@ export default function AdminPage() {
   const [pointReason, setPointReason] = useState("포인트 조정");
   const [isAdjustingPoints, setIsAdjustingPoints] = useState(false);
   const [studentNotes, setStudentNotes] = useState<Record<string, string>>({});
+  const [savingStudentNoteId, setSavingStudentNoteId] = useState<string | null>(null);
   const [batchPointMode, setBatchPointMode] = useState<"give" | "recover" | null>(null);
   const [batchPointAmount, setBatchPointAmount] = useState("");
   const [batchPointReason, setBatchPointReason] = useState("");
@@ -1728,14 +1729,18 @@ export default function AdminPage() {
     setIsAdjustingPoints(false);
   };
 
-  const handleStudentNoteChange = async (studentId: string, note: string) => {
+  const handleStudentNoteChange = (studentId: string, note: string) => {
     setStudentNotes((currentNotes) => ({ ...currentNotes, [studentId]: note }));
-    setStudents((currentStudents) =>
-      currentStudents.map((student) => (student.id === studentId ? { ...student, note } : student))
-    );
+  };
+
+  const handleStudentNoteSave = async (studentId: string) => {
+    const note = studentNotes[studentId] ?? students.find((student) => student.id === studentId)?.note ?? "";
+
+    setSavingStudentNoteId(studentId);
+    setDataMessage("");
 
     const { data: sessionData } = await supabase.auth.getSession();
-    await fetch("/api/admin/student-notes", {
+    const response = await fetch("/api/admin/student-notes", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -1747,6 +1752,19 @@ export default function AdminPage() {
         departmentId: session?.role === "master" ? selectedFranchiseId : undefined,
       }),
     });
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      setDataMessage(payload?.error ?? "비고를 저장하지 못했습니다.");
+      setSavingStudentNoteId(null);
+      return;
+    }
+
+    setStudents((currentStudents) =>
+      currentStudents.map((student) => (student.id === studentId ? { ...student, note } : student))
+    );
+    setDataMessage("비고를 저장했습니다.");
+    setSavingStudentNoteId(null);
   };
 
   const handleStudentExcelUpload = (file: File | null) => {
@@ -2083,6 +2101,7 @@ export default function AdminPage() {
 	              batchPointAmount={batchPointAmount}
 	              batchPointReason={batchPointReason}
 	              isAdjustingPoints={isAdjustingPoints}
+	              savingStudentNoteId={savingStudentNoteId}
 	              selectedUploadFile={selectedUploadFile}
 	              newStudentName={newStudentName}
 	              newStudentGrade={newStudentGrade}
@@ -2100,6 +2119,7 @@ export default function AdminPage() {
 	              onAdjustPoints={handlePointAdjustment}
 	              onDirectedPointAdjustment={handleDirectedPointAdjustment}
 	              onStudentNoteChange={handleStudentNoteChange}
+	              onStudentNoteSave={handleStudentNoteSave}
 	              onBatchPointModeChange={setBatchPointMode}
 	              onBatchPointAmountChange={setBatchPointAmount}
 	              onBatchPointReasonChange={setBatchPointReason}
@@ -2301,6 +2321,7 @@ function StudentManagementView({
   batchPointAmount,
   batchPointReason,
   isAdjustingPoints,
+  savingStudentNoteId,
   selectedUploadFile,
   newStudentName,
   newStudentGrade,
@@ -2318,6 +2339,7 @@ function StudentManagementView({
   onAdjustPoints,
   onDirectedPointAdjustment,
   onStudentNoteChange,
+  onStudentNoteSave,
   onBatchPointModeChange,
   onBatchPointAmountChange,
   onBatchPointReasonChange,
@@ -2343,6 +2365,7 @@ function StudentManagementView({
   batchPointAmount: string;
   batchPointReason: string;
   isAdjustingPoints: boolean;
+  savingStudentNoteId: string | null;
   selectedUploadFile: string;
   newStudentName: string;
   newStudentGrade: string;
@@ -2360,6 +2383,7 @@ function StudentManagementView({
   onAdjustPoints: () => void;
   onDirectedPointAdjustment: (student: Student, direction: "give" | "recover") => void;
   onStudentNoteChange: (studentId: string, note: string) => void;
+  onStudentNoteSave: (studentId: string) => void;
   onBatchPointModeChange: (mode: "give" | "recover" | null) => void;
   onBatchPointAmountChange: (amount: string) => void;
   onBatchPointReasonChange: (reason: string) => void;
@@ -2464,6 +2488,16 @@ function StudentManagementView({
                           className="mt-3 min-h-24 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-blue-400"
                           placeholder="비고"
                         />
+                        <div className="mt-2 flex justify-end">
+                          <button
+                            type="button"
+                            disabled={savingStudentNoteId === student.id}
+                            onClick={() => onStudentNoteSave(student.id)}
+                            className="rounded-xl bg-slate-900 px-4 py-2 text-xs font-black text-white hover:bg-slate-800 disabled:bg-slate-300"
+                          >
+                            {savingStudentNoteId === student.id ? "저장 중" : "비고 저장"}
+                          </button>
+                        </div>
                       </div>
                       <div className="flex flex-col gap-2 lg:w-36">
                         <button
@@ -2743,6 +2777,16 @@ function StudentManagementView({
                             className="min-h-24 w-full resize-y rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-600 outline-none focus:border-blue-400"
                             placeholder="비고"
                           />
+                          <div className="mt-3 flex justify-end">
+                            <button
+                              type="button"
+                              disabled={savingStudentNoteId === student.id}
+                              onClick={() => onStudentNoteSave(student.id)}
+                              className="rounded-xl bg-slate-900 px-4 py-2 text-xs font-black text-white hover:bg-slate-800 disabled:bg-slate-300"
+                            >
+                              {savingStudentNoteId === student.id ? "저장 중" : "비고 저장"}
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     )}
