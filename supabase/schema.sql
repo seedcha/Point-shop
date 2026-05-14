@@ -18,6 +18,7 @@ create table departments (
 create table admin_profiles (
     id uuid primary key default gen_random_uuid(), -- 관리자 ID
     login_id varchar(50) not null unique, -- 로그인 시 사용하는 ID
+    email text unique, -- 실제 인증/비밀번호 재설정 이메일
     manager_name varchar(50) not null, -- 관리자 이름
     auth_user_id uuid not null unique references auth.users(id) on delete cascade,
     role varchar(20) not null default 'staff'
@@ -193,8 +194,8 @@ insert into departments (name) values
 ('대치'), ('판교')
 on conflict (name) do nothing;
 
-insert into admin_profiles (manager_name, login_id, auth_user_id, role, department_id) values
-('Kyle', 'kyle', '7f372d74-38b9-4070-856a-2901a8ce4b77', 'master', (select id from departments where name = '판교'))
+insert into admin_profiles (manager_name, login_id, email, auth_user_id, role, department_id) values
+('Kyle', 'kyle', null, '7f372d74-38b9-4070-856a-2901a8ce4b77', 'master', (select id from departments where name = '판교'))
 on conflict (auth_user_id) do nothing;
 
 commit;
