@@ -5,7 +5,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 type AdminProfile = {
   id: string;
   role: string;
-  department_id: string;
+  department_id: string | null;
   is_active: boolean;
 };
 

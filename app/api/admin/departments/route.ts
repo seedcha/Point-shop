@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const AUTH_EMAIL_DOMAIN = "@daddyslab.com";
 
 async function getMasterProfile(request: NextRequest) {
   const authorization = request.headers.get("authorization");
@@ -43,14 +43,13 @@ export async function POST(request: NextRequest) {
     name?: string;
     managerName?: string;
     managerLoginId?: string;
-    managerEmail?: string;
     managerPassword?: string;
   };
   const name = body.name?.trim();
   const managerName = body.managerName?.trim();
   const managerLoginId = body.managerLoginId?.trim().toLowerCase();
-  const managerEmail = body.managerEmail?.trim().toLowerCase();
   const managerPassword = body.managerPassword ?? "";
+  const managerEmail = managerLoginId ? `${managerLoginId}${AUTH_EMAIL_DOMAIN}` : "";
 
   if (!name || name.length > 50) {
     return NextResponse.json({ error: "가맹점명은 1~50자로 입력해주세요." }, { status: 400 });
@@ -69,20 +68,6 @@ export async function POST(request: NextRequest) {
 
   if (managerPassword.length < 6 || managerPassword.length > 72) {
     return NextResponse.json({ error: "manager PW는 6~72자로 입력해주세요." }, { status: 400 });
-  }
-
-  if (!managerEmail || managerEmail.length > 254 || !EMAIL_PATTERN.test(managerEmail)) {
-    return NextResponse.json({ error: "manager 이메일을 확인해주세요." }, { status: 400 });
-  }
-
-  const { data: existingEmail } = await supabaseAdmin
-    .from("admin_profiles")
-    .select("id")
-    .ilike("email", managerEmail)
-    .maybeSingle();
-
-  if (existingEmail) {
-    return NextResponse.json({ error: "이미 사용 중인 이메일입니다." }, { status: 409 });
   }
 
   const { data: existingProfile, error: profileLookupError } = await supabaseAdmin
@@ -161,7 +146,6 @@ export async function POST(request: NextRequest) {
     .from("admin_profiles")
     .insert({
       login_id: managerLoginId,
-      email: managerEmail,
       manager_name: managerName,
       auth_user_id: authData.user.id,
       role: "manager",

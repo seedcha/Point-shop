@@ -2,12 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const AUTH_EMAIL_DOMAIN = "@daddyslab.com";
 
 type AdminProfile = {
   id: string;
   role: string;
-  department_id: string;
+  department_id: string | null;
 };
 
 async function getManagerProfile(request: NextRequest) {
@@ -56,12 +56,16 @@ export async function GET(request: NextRequest) {
   const requestedDepartmentId = new URL(request.url).searchParams.get("departmentId")?.trim();
   const departmentId =
     admin.profile.role === "master"
-      ? requestedDepartmentId ?? admin.profile.department_id
+      ? requestedDepartmentId
       : admin.profile.department_id;
+
+  if (!departmentId) {
+    return NextResponse.json({ error: "가맹점을 선택해주세요." }, { status: 400 });
+  }
 
   const { data: teacherRows, error: teacherError } = await supabaseAdmin
     .from("admin_profiles")
-    .select("id, login_id, email, manager_name, role, is_active")
+    .select("id, login_id, manager_name, role, is_active")
     .eq("department_id", departmentId)
     .in("role", ["manager", "staff"])
     .order("manager_name");
@@ -99,7 +103,6 @@ export async function GET(request: NextRequest) {
       return {
         id: teacher.id,
         loginId: teacher.login_id,
-        email: teacher.email ?? "",
         name: teacher.manager_name,
         role: teacher.role,
         passwordLabel: `${teacher.login_id}(${teacher.manager_name})`,
@@ -168,7 +171,6 @@ export async function GET(request: NextRequest) {
       return {
         id: teacher.id,
         loginId: teacher.login_id,
-        email: teacher.email ?? "",
         name: teacher.manager_name,
         role: teacher.role,
         students: Array.from(byStudent.values()),
@@ -188,18 +190,21 @@ export async function POST(request: NextRequest) {
   const body = (await request.json()) as {
     departmentId?: string;
     loginId?: string;
-    email?: string;
     password?: string;
     name?: string;
   };
   const departmentId =
     admin.profile.role === "master"
-      ? body.departmentId?.trim() ?? admin.profile.department_id
+      ? body.departmentId?.trim()
       : admin.profile.department_id;
+  if (!departmentId) {
+    return NextResponse.json({ error: "가맹점을 선택해주세요." }, { status: 400 });
+  }
+
   const loginId = body.loginId?.trim().toLowerCase();
-  const email = body.email?.trim().toLowerCase();
   const password = body.password?.trim();
   const name = body.name?.trim();
+  const email = loginId ? `${loginId}${AUTH_EMAIL_DOMAIN}` : "";
 
   if (!loginId || loginId.length > 50 || !/^[a-z0-9._-]+$/.test(loginId)) {
     return NextResponse.json({ error: "ID는 영어 이름 기반으로 입력해주세요." }, { status: 400 });
@@ -207,10 +212,6 @@ export async function POST(request: NextRequest) {
 
   if (!password || password.length < 6 || password.length > 72) {
     return NextResponse.json({ error: "PW는 6~72자로 입력해주세요." }, { status: 400 });
-  }
-
-  if (!email || email.length > 254 || !EMAIL_PATTERN.test(email)) {
-    return NextResponse.json({ error: "이메일을 확인해주세요." }, { status: 400 });
   }
 
   if (!name || name.length > 50) {
@@ -225,16 +226,6 @@ export async function POST(request: NextRequest) {
 
   if (existing) {
     return NextResponse.json({ error: "이미 사용 중인 ID입니다." }, { status: 409 });
-  }
-
-  const { data: existingEmail } = await supabaseAdmin
-    .from("admin_profiles")
-    .select("id")
-    .ilike("email", email)
-    .maybeSingle();
-
-  if (existingEmail) {
-    return NextResponse.json({ error: "이미 사용 중인 이메일입니다." }, { status: 409 });
   }
 
   const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
@@ -252,7 +243,6 @@ export async function POST(request: NextRequest) {
 
   const { error: profileError } = await supabaseAdmin.from("admin_profiles").insert({
     login_id: loginId,
-    email,
     manager_name: name,
     auth_user_id: authData.user.id,
     role: "staff",
@@ -278,18 +268,21 @@ export async function PATCH(request: NextRequest) {
     teacherId?: string;
     departmentId?: string;
     loginId?: string;
-    email?: string;
     password?: string;
     retire?: boolean;
   };
   const teacherId = body.teacherId?.trim();
   const departmentId =
     admin.profile.role === "master"
-      ? body.departmentId?.trim() ?? admin.profile.department_id
+      ? body.departmentId?.trim()
       : admin.profile.department_id;
+  if (!departmentId) {
+    return NextResponse.json({ error: "가맹점을 선택해주세요." }, { status: 400 });
+  }
+
   const loginId = body.loginId?.trim().toLowerCase();
-  const email = body.email?.trim().toLowerCase();
   const password = body.password?.trim();
+  const email = loginId ? `${loginId}${AUTH_EMAIL_DOMAIN}` : "";
 
   if (!teacherId) {
     return NextResponse.json({ error: "강사를 선택해주세요." }, { status: 400 });
@@ -297,7 +290,7 @@ export async function PATCH(request: NextRequest) {
 
   const { data: teacher, error: teacherError } = await supabaseAdmin
     .from("admin_profiles")
-    .select("id, auth_user_id, login_id, email")
+    .select("id, auth_user_id, login_id")
     .eq("id", teacherId)
     .eq("department_id", departmentId)
     .eq("role", "staff")
@@ -328,10 +321,6 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: "강사 PW는 6~72자로 입력해주세요." }, { status: 400 });
   }
 
-  if (!email || email.length > 254 || !EMAIL_PATTERN.test(email)) {
-    return NextResponse.json({ error: "강사 이메일을 확인해주세요." }, { status: 400 });
-  }
-
   if (loginId !== teacher.login_id) {
     const { data: existing } = await supabaseAdmin
       .from("admin_profiles")
@@ -341,19 +330,6 @@ export async function PATCH(request: NextRequest) {
 
     if (existing) {
       return NextResponse.json({ error: "이미 사용 중인 ID입니다." }, { status: 409 });
-    }
-  }
-
-  if (email !== teacher.email) {
-    const { data: existingEmail } = await supabaseAdmin
-      .from("admin_profiles")
-      .select("id")
-      .ilike("email", email)
-      .neq("id", teacherId)
-      .maybeSingle();
-
-    if (existingEmail) {
-      return NextResponse.json({ error: "이미 사용 중인 이메일입니다." }, { status: 409 });
     }
   }
 
@@ -371,7 +347,7 @@ export async function PATCH(request: NextRequest) {
 
   const { error: profileError } = await supabaseAdmin
     .from("admin_profiles")
-    .update({ login_id: loginId, email, updated_at: new Date().toISOString() })
+    .update({ login_id: loginId, updated_at: new Date().toISOString() })
     .eq("id", teacherId);
 
   if (profileError) {

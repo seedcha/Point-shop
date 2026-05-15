@@ -2,13 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const AUTH_EMAIL_DOMAIN = "@daddyslab.com";
 
 type AdminRole = "master" | "manager" | "staff";
 
 type AdminProfile = {
   id: string;
-  department_id: string;
+  department_id: string | null;
   role: AdminRole;
   is_active: boolean;
 };
@@ -16,10 +16,9 @@ type AdminProfile = {
 type TargetAdminProfile = {
   id: string;
   login_id: string;
-  email: string | null;
   auth_user_id: string;
   manager_name: string;
-  department_id: string;
+  department_id: string | null;
   role: AdminRole;
   is_active: boolean;
 };
@@ -78,12 +77,10 @@ export async function POST(request: NextRequest) {
   const body = (await request.json()) as {
     adminProfileId?: string;
     loginId?: string;
-    email?: string;
     password?: string;
   };
   const adminProfileId = body.adminProfileId?.trim();
   const loginId = body.loginId?.trim().toLowerCase();
-  const email = body.email?.trim().toLowerCase();
   const password = body.password?.trim();
 
   if (!adminProfileId) {
@@ -101,13 +98,9 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  if (email && (email.length > 254 || !EMAIL_PATTERN.test(email))) {
-    return NextResponse.json({ error: "이메일을 확인해주세요." }, { status: 400 });
-  }
-
   const { data: targetProfile, error: targetError } = await supabaseAdmin
     .from("admin_profiles")
-    .select("id, login_id, email, auth_user_id, manager_name, department_id, role, is_active")
+    .select("id, login_id, auth_user_id, manager_name, department_id, role, is_active")
     .eq("id", adminProfileId)
     .eq("is_active", true)
     .single<TargetAdminProfile>();
@@ -136,27 +129,10 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  if (email && email !== targetProfile.email) {
-    const { data: existingEmail, error: emailLookupError } = await supabaseAdmin
-      .from("admin_profiles")
-      .select("id")
-      .ilike("email", email)
-      .neq("id", targetProfile.id)
-      .maybeSingle();
-
-    if (emailLookupError) {
-      return NextResponse.json({ error: "이메일 중복 확인에 실패했습니다." }, { status: 500 });
-    }
-
-    if (existingEmail) {
-      return NextResponse.json({ error: "이미 사용 중인 이메일입니다." }, { status: 409 });
-    }
-  }
-
   const updatePayload: { email?: string; password: string } = { password };
 
-  if (email) {
-    updatePayload.email = email;
+  if (loginId) {
+    updatePayload.email = `${loginId}${AUTH_EMAIL_DOMAIN}`;
   }
 
   const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
@@ -171,7 +147,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const profileUpdate: { login_id?: string; email?: string; updated_at: string } = {
+  const profileUpdate: { login_id?: string; updated_at: string } = {
     updated_at: new Date().toISOString(),
   };
 
@@ -179,11 +155,7 @@ export async function POST(request: NextRequest) {
     profileUpdate.login_id = loginId;
   }
 
-  if (email && email !== targetProfile.email) {
-    profileUpdate.email = email;
-  }
-
-  if (profileUpdate.login_id || profileUpdate.email) {
+  if (profileUpdate.login_id) {
     const { error: profileUpdateError } = await supabaseAdmin
       .from("admin_profiles")
       .update(profileUpdate)
@@ -204,10 +176,6 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: actor.error }, { status: actor.status });
   }
 
-  if (actor.profile.role !== "master") {
-    return NextResponse.json({ error: "master만 본인 비밀번호를 직접 변경할 수 있습니다." }, { status: 403 });
-  }
-
   const body = (await request.json()) as {
     currentPassword?: string;
     password?: string;
@@ -217,7 +185,7 @@ export async function PATCH(request: NextRequest) {
   const email = actor.authUser.email?.trim().toLowerCase();
 
   if (!email) {
-    return NextResponse.json({ error: "master 계정의 실제 이메일이 필요합니다." }, { status: 400 });
+    return NextResponse.json({ error: "계정 이메일이 필요합니다." }, { status: 400 });
   }
 
   if (!currentPassword) {

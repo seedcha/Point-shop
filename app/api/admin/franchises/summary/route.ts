@@ -6,7 +6,7 @@ type AdminProfile = {
   id: string;
   manager_name: string;
   role: string;
-  department_id: string;
+  department_id: string | null;
   is_active: boolean;
 };
 
@@ -147,7 +147,7 @@ export async function GET(request: NextRequest) {
 
   const { data: teacherRows, error: teacherError } = await supabaseAdmin
     .from("admin_profiles")
-    .select("id, login_id, email, manager_name, role")
+    .select("id, login_id, manager_name, role")
     .eq("department_id", selectedDepartment.id)
     .eq("is_active", true)
     .in("role", ["manager", "staff"])
@@ -159,7 +159,7 @@ export async function GET(request: NextRequest) {
 
   const { data: accountRows, error: accountError } = await supabaseAdmin
     .from("admin_profiles")
-    .select("id, login_id, email, manager_name, role")
+    .select("id, login_id, manager_name, role")
     .eq("department_id", selectedDepartment.id)
     .eq("is_active", true)
     .order("manager_name");
@@ -184,7 +184,6 @@ export async function GET(request: NextRequest) {
   const teachers = (teacherRows ?? []).map((teacher) => ({
     id: teacher.id,
     loginId: teacher.login_id,
-    email: teacher.email ?? "",
     name: teacher.manager_name,
     role: teacher.role,
     totalAwardedPoints: allTeacherTransactions
@@ -216,7 +215,6 @@ export async function GET(request: NextRequest) {
     accounts: (accountRows ?? []).map((account) => ({
       id: account.id,
       loginId: account.login_id,
-      email: account.email ?? "",
       name: account.manager_name,
       role: account.role,
     })),

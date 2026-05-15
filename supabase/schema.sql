@@ -18,12 +18,11 @@ create table departments (
 create table admin_profiles (
     id uuid primary key default gen_random_uuid(), -- 관리자 ID
     login_id varchar(50) not null unique, -- 로그인 시 사용하는 ID
-    email text unique, -- 실제 인증/비밀번호 재설정 이메일
     manager_name varchar(50) not null, -- 관리자 이름
     auth_user_id uuid not null unique references auth.users(id) on delete cascade,
     role varchar(20) not null default 'staff'
         check (role in ('master', 'manager','staff')), -- 관리자 역할 (마스터 또는 매니저)
-    department_id uuid not null references departments(id) on delete restrict, -- 관리자 가맹점
+    department_id uuid references departments(id) on delete restrict, -- 관리자 가맹점 (master는 null)
     is_active boolean not null default true, -- 관리자 활성 여부
     created_at timestamptz not null default now(), -- 생성 시간
     updated_at timestamptz not null default now() -- 업데이트 시간
@@ -194,8 +193,8 @@ insert into departments (name) values
 ('대치'), ('판교')
 on conflict (name) do nothing;
 
-insert into admin_profiles (manager_name, login_id, email, auth_user_id, role, department_id) values
-('Kyle', 'kyle', null, '7f372d74-38b9-4070-856a-2901a8ce4b77', 'master', (select id from departments where name = '판교'))
+insert into admin_profiles (manager_name, login_id, auth_user_id, role, department_id) values
+('Kyle', 'kyle0108', 'd5ad371c-0b63-46b1-90db-fbd774d37123', 'master', null)
 on conflict (auth_user_id) do nothing;
 
 commit;

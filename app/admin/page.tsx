@@ -12,10 +12,9 @@ type AdminView = "students" | "teachers" | "shop" | "departments" | "pins" | "an
 type AdminProfileRow = {
   id: string;
   login_id: string;
-  email: string | null;
   manager_name: string;
   role: AdminRole;
-  department_id: string;
+  department_id: string | null;
   is_active: boolean;
   departments?: {
     name: string;
@@ -25,10 +24,9 @@ type AdminProfileRow = {
 type AdminSession = {
   id: string;
   loginId: string;
-  email: string;
   name: string;
   role: AdminRole;
-  departmentId: string;
+  departmentId: string | null;
   departmentName: string;
 };
 
@@ -75,14 +73,12 @@ type FranchiseSummary = {
   accounts: Array<{
     id: string;
     loginId: string;
-    email: string;
     name: string;
     role: string;
   }>;
   teachers: Array<{
     id: string;
     loginId: string;
-    email: string;
     name: string;
     role: string;
     totalAwardedPoints: number;
@@ -130,7 +126,6 @@ type TeacherTransaction = {
 type TeacherSummary = {
   id: string;
   loginId: string;
-  email: string;
   name: string;
   role: string;
   passwordLabel: string;
@@ -142,7 +137,6 @@ type TeacherSummary = {
 type RetiredTeacherSummary = {
   id: string;
   loginId: string;
-  email: string;
   name: string;
   role: string;
   students: Array<{
@@ -153,6 +147,7 @@ type RetiredTeacherSummary = {
   }>;
 };
 
+const AUTH_EMAIL_DOMAIN = "@daddyslab.com";
 const SIGNUP_DEPARTMENTS = ["대치", "판교"];
 const DEPARTMENT_PIN_PREFIX = "dept_pin:";
 const PIN_CHARACTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -264,7 +259,6 @@ export default function AdminPage() {
   const [loginPassword, setLoginPassword] = useState("");
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [signupId, setSignupId] = useState("");
-  const [signupEmail, setSignupEmail] = useState("");
   const [signupPassword, setSignupPassword] = useState("");
   const [signupConfirm, setSignupConfirm] = useState("");
   const [signupName, setSignupName] = useState("");
@@ -293,7 +287,6 @@ export default function AdminPage() {
   const [newDepartmentName, setNewDepartmentName] = useState("");
   const [newDepartmentOwnerName, setNewDepartmentOwnerName] = useState("");
   const [newDepartmentManagerId, setNewDepartmentManagerId] = useState("");
-  const [newDepartmentManagerEmail, setNewDepartmentManagerEmail] = useState("");
   const [newDepartmentManagerPassword, setNewDepartmentManagerPassword] = useState("");
   const [isDepartmentModalOpen, setIsDepartmentModalOpen] = useState(false);
   const [isSavingDepartment, setIsSavingDepartment] = useState(false);
@@ -311,7 +304,6 @@ export default function AdminPage() {
   const [isCredentialModalOpen, setIsCredentialModalOpen] = useState(false);
   const [isEditingCredentials, setIsEditingCredentials] = useState(false);
   const [credentialLoginId, setCredentialLoginId] = useState("");
-  const [credentialEmail, setCredentialEmail] = useState("");
   const [credentialPassword, setCredentialPassword] = useState("");
   const [isSavingCredentials, setIsSavingCredentials] = useState(false);
   const [isOwnPasswordModalOpen, setIsOwnPasswordModalOpen] = useState(false);
@@ -348,12 +340,10 @@ export default function AdminPage() {
   const [expandedTeacherId, setExpandedTeacherId] = useState<string>("");
   const [selectedRetiredTeacherId, setSelectedRetiredTeacherId] = useState<string>("");
   const [newTeacherLoginId, setNewTeacherLoginId] = useState("");
-  const [newTeacherEmail, setNewTeacherEmail] = useState("");
   const [newTeacherPassword, setNewTeacherPassword] = useState("");
   const [newTeacherName, setNewTeacherName] = useState("");
   const [editingTeacher, setEditingTeacher] = useState<TeacherSummary | null>(null);
   const [teacherEditLoginId, setTeacherEditLoginId] = useState("");
-  const [teacherEditEmail, setTeacherEditEmail] = useState("");
   const [teacherEditPassword, setTeacherEditPassword] = useState("");
   const [isLoadingTeachers, setIsLoadingTeachers] = useState(false);
   const [isSavingTeacher, setIsSavingTeacher] = useState(false);
@@ -481,7 +471,7 @@ export default function AdminPage() {
     }
 
     setDepartments(departmentRows ?? []);
-    setSelectedFranchiseId(currentSession.role === "master" ? "" : currentSession.departmentId);
+    setSelectedFranchiseId(currentSession.role === "master" ? "" : currentSession.departmentId ?? "");
     setProducts(productRows ?? []);
     setStudents(studentRows ?? []);
     setSelectedStudentId((studentRows ?? [])[0]?.id ?? "");
@@ -638,7 +628,7 @@ export default function AdminPage() {
 
     const { data: profile, error: profileError } = await supabase
       .from("admin_profiles")
-      .select("id, login_id, email, manager_name, role, department_id, is_active, departments(name)")
+      .select("id, login_id, manager_name, role, department_id, is_active, departments(name)")
       .eq("auth_user_id", authData.user.id)
       .eq("is_active", true)
       .single<AdminProfileRow>();
@@ -653,7 +643,6 @@ export default function AdminPage() {
     const nextSession = {
       id: profile.id,
       loginId: profile.login_id,
-      email: profile.email ?? authData.user.email ?? "",
       name: profile.manager_name,
       role: profile.role,
       departmentId: profile.department_id,
@@ -671,7 +660,7 @@ export default function AdminPage() {
     await loadAdminData(nextSession);
     if (nextSession.role === "manager") {
       await loadFranchiseSummary({
-        departmentId: nextSession.departmentId,
+        departmentId: nextSession.departmentId ?? undefined,
       });
     }
   };
@@ -681,15 +670,10 @@ export default function AdminPage() {
     setMessage("");
 
     const normalizedSignupId = signupId.trim().toLowerCase();
-    const email = signupEmail.trim().toLowerCase();
+    const email = `${normalizedSignupId}${AUTH_EMAIL_DOMAIN}`;
 
     if (!normalizedSignupId) {
       setMessage("아이디를 입력해주세요.");
-      return;
-    }
-
-    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setMessage("이메일을 확인해주세요.");
       return;
     }
 
@@ -742,7 +726,6 @@ export default function AdminPage() {
 
     const { error: profileError } = await supabase.from("admin_profiles").insert({
       login_id: normalizedSignupId,
-      email,
       manager_name: signupName.trim(),
       auth_user_id: authData.user.id,
       role: "staff",
@@ -759,7 +742,6 @@ export default function AdminPage() {
     setLoginId(normalizedSignupId);
     setLoginPassword("");
     setSignupId("");
-    setSignupEmail("");
     setSignupPassword("");
     setSignupConfirm("");
     setSignupName("");
@@ -799,14 +781,17 @@ export default function AdminPage() {
     setIsSendingResetEmail(true);
     setMessage("");
 
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/admin/reset-password`,
+    const response = await fetch("/api/admin/password/reset-email", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
     });
 
     setIsSendingResetEmail(false);
 
-    if (error) {
-      setMessage(error.message || "재설정 메일을 보내지 못했습니다.");
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      setMessage(payload?.error ?? "재설정 메일을 보내지 못했습니다.");
       return;
     }
 
@@ -1001,7 +986,6 @@ export default function AdminPage() {
     const name = newDepartmentName.trim();
     const managerName = newDepartmentOwnerName.trim();
     const managerLoginId = newDepartmentManagerId.trim().toLowerCase();
-    const managerEmail = newDepartmentManagerEmail.trim().toLowerCase();
     const managerPassword = newDepartmentManagerPassword;
 
     if (!name) {
@@ -1016,11 +1000,6 @@ export default function AdminPage() {
 
     if (!managerLoginId) {
       setDataMessage("manager ID를 입력해주세요.");
-      return;
-    }
-
-    if (!managerEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(managerEmail)) {
-      setDataMessage("manager 이메일을 확인해주세요.");
       return;
     }
 
@@ -1043,7 +1022,6 @@ export default function AdminPage() {
         name,
         managerName,
         managerLoginId,
-        managerEmail,
         managerPassword,
       }),
     });
@@ -1058,7 +1036,6 @@ export default function AdminPage() {
     setNewDepartmentName("");
     setNewDepartmentOwnerName("");
     setNewDepartmentManagerId("");
-    setNewDepartmentManagerEmail("");
     setNewDepartmentManagerPassword("");
     setIsDepartmentModalOpen(false);
     setDataMessage("가맹점을 생성했습니다.");
@@ -1315,13 +1292,8 @@ export default function AdminPage() {
   const handleAddTeacher = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    if (!newTeacherLoginId.trim() || !newTeacherEmail.trim() || !newTeacherPassword.trim() || !newTeacherName.trim()) {
+    if (!newTeacherLoginId.trim() || !newTeacherPassword.trim() || !newTeacherName.trim()) {
       setDataMessage("강사 ID, PW, 본명을 모두 입력해주세요.");
-      return;
-    }
-
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newTeacherEmail.trim())) {
-      setDataMessage("강사 이메일을 확인해주세요.");
       return;
     }
 
@@ -1344,7 +1316,6 @@ export default function AdminPage() {
       },
       body: JSON.stringify({
         loginId: newTeacherLoginId,
-        email: newTeacherEmail,
         password: newTeacherPassword,
         name: newTeacherName,
         departmentId,
@@ -1359,7 +1330,6 @@ export default function AdminPage() {
     }
 
     setNewTeacherLoginId("");
-    setNewTeacherEmail("");
     setNewTeacherPassword("");
     setNewTeacherName("");
     setDataMessage("강사를 추가했습니다.");
@@ -1371,14 +1341,12 @@ export default function AdminPage() {
   const openTeacherEditModal = (teacher: TeacherSummary) => {
     setEditingTeacher(teacher);
     setTeacherEditLoginId(teacher.loginId);
-    setTeacherEditEmail(teacher.email);
     setTeacherEditPassword("");
   };
 
   const closeTeacherEditModal = () => {
     setEditingTeacher(null);
     setTeacherEditLoginId("");
-    setTeacherEditEmail("");
     setTeacherEditPassword("");
   };
 
@@ -1389,13 +1357,8 @@ export default function AdminPage() {
 
     const departmentId = session?.role === "master" ? selectedFranchiseId : session?.departmentId;
 
-    if (!retire && (!teacherEditLoginId.trim() || !teacherEditEmail.trim() || teacherEditPassword.trim().length < 6)) {
+    if (!retire && (!teacherEditLoginId.trim() || teacherEditPassword.trim().length < 6)) {
       setDataMessage("강사 ID와 6자 이상의 PW를 입력해주세요.");
-      return;
-    }
-
-    if (!retire && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(teacherEditEmail.trim())) {
-      setDataMessage("강사 이메일을 확인해주세요.");
       return;
     }
 
@@ -1412,7 +1375,6 @@ export default function AdminPage() {
       body: JSON.stringify({
         teacherId: editingTeacher.id,
         loginId: teacherEditLoginId,
-        email: teacherEditEmail,
         password: teacherEditPassword,
         departmentId,
         retire,
@@ -1446,7 +1408,6 @@ export default function AdminPage() {
     }
 
     setCredentialLoginId(target.loginId);
-    setCredentialEmail(target.email);
     setCredentialPassword("");
     setIsEditingCredentials(false);
     setIsCredentialModalOpen(true);
@@ -1454,7 +1415,6 @@ export default function AdminPage() {
 
   const handleCloseCredentialModal = () => {
     setCredentialLoginId("");
-    setCredentialEmail("");
     setCredentialPassword("");
     setIsEditingCredentials(false);
     setIsCredentialModalOpen(false);
@@ -1464,7 +1424,6 @@ export default function AdminPage() {
     const target = getCredentialTarget();
 
     setCredentialLoginId(target?.loginId ?? "");
-    setCredentialEmail(target?.email ?? "");
     setCredentialPassword("");
     setIsEditingCredentials(false);
   };
@@ -1476,7 +1435,6 @@ export default function AdminPage() {
 
     const target = getCredentialTarget();
     const nextLoginId = credentialLoginId.trim().toLowerCase();
-    const nextEmail = credentialEmail.trim().toLowerCase();
     const nextPassword = credentialPassword.trim();
 
     if (!target) {
@@ -1486,11 +1444,6 @@ export default function AdminPage() {
 
     if (!nextLoginId) {
       setDataMessage("manager ID를 입력해주세요.");
-      return;
-    }
-
-    if (!nextEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(nextEmail)) {
-      setDataMessage("manager 이메일을 확인해주세요.");
       return;
     }
 
@@ -1512,7 +1465,6 @@ export default function AdminPage() {
       body: JSON.stringify({
         adminProfileId: target.id,
         loginId: nextLoginId,
-        email: nextEmail,
         password: nextPassword,
       }),
     });
@@ -1525,7 +1477,6 @@ export default function AdminPage() {
     }
 
     setCredentialLoginId(nextLoginId);
-    setCredentialEmail(nextEmail);
     setCredentialPassword("");
     setIsEditingCredentials(false);
     setIsSavingCredentials(false);
@@ -2084,18 +2035,6 @@ export default function AdminPage() {
               />
             </label>
             <label className="block">
-              <span className="text-sm font-bold text-slate-600">이메일</span>
-              <input
-                type="email"
-                required
-                autoCapitalize="none"
-                value={signupEmail}
-                onChange={(event) => setSignupEmail(event.target.value)}
-                className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 font-bold text-slate-800 outline-none transition focus:border-blue-400 focus:bg-white"
-                placeholder="name@example.com"
-              />
-            </label>
-            <label className="block">
               <span className="text-sm font-bold text-slate-600">관리자 이름</span>
               <input
                 type="text"
@@ -2217,7 +2156,7 @@ export default function AdminPage() {
                     await loadFranchiseSummary({
                       departmentId:
                         selectedFranchiseId ||
-                        (session.role === "master" ? undefined : session.departmentId),
+                        (session.role === "master" ? undefined : session.departmentId ?? undefined),
                       teacherId: selectedFranchiseTeacherId || undefined,
                       studentQuery: submittedFranchiseStudentSearchText,
                     });
@@ -2249,14 +2188,12 @@ export default function AdminPage() {
           >
             로그아웃
           </button>
-          {session.role === "master" && (
-            <button
-              onClick={() => setIsOwnPasswordModalOpen(true)}
-              className="mt-3 w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-black text-white hover:bg-slate-800"
-            >
-              내 비밀번호 변경
-            </button>
-          )}
+          <button
+            onClick={() => setIsOwnPasswordModalOpen(true)}
+            className="mt-3 w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-black text-white hover:bg-slate-800"
+          >
+            내 비밀번호 변경
+          </button>
         </aside>
 
         <section className="px-6 py-8 lg:px-10">
@@ -2335,12 +2272,10 @@ export default function AdminPage() {
                 expandedTeacherId={expandedTeacherId}
                 selectedRetiredTeacherId={selectedRetiredTeacherId}
                 newTeacherLoginId={newTeacherLoginId}
-                newTeacherEmail={newTeacherEmail}
                 newTeacherPassword={newTeacherPassword}
                 newTeacherName={newTeacherName}
                 editingTeacher={editingTeacher}
                 teacherEditLoginId={teacherEditLoginId}
-                teacherEditEmail={teacherEditEmail}
                 teacherEditPassword={teacherEditPassword}
                 isLoadingTeachers={isLoadingTeachers}
                 isSavingTeacher={isSavingTeacher}
@@ -2348,14 +2283,12 @@ export default function AdminPage() {
                 onExpandedTeacherChange={setExpandedTeacherId}
                 onRetiredTeacherChange={setSelectedRetiredTeacherId}
                 onNewTeacherLoginIdChange={setNewTeacherLoginId}
-                onNewTeacherEmailChange={setNewTeacherEmail}
                 onNewTeacherPasswordChange={setNewTeacherPassword}
                 onNewTeacherNameChange={setNewTeacherName}
                 onAddTeacher={handleAddTeacher}
                 onTeacherEditOpen={openTeacherEditModal}
                 onTeacherEditClose={closeTeacherEditModal}
                 onTeacherEditLoginIdChange={setTeacherEditLoginId}
-                onTeacherEditEmailChange={setTeacherEditEmail}
                 onTeacherEditPasswordChange={setTeacherEditPassword}
                 onTeacherUpdate={handleUpdateTeacher}
               />
@@ -2397,20 +2330,17 @@ export default function AdminPage() {
                 isCredentialModalOpen={isCredentialModalOpen}
                 isEditingCredentials={isEditingCredentials}
                 credentialLoginId={credentialLoginId}
-                credentialEmail={credentialEmail}
                 credentialPassword={credentialPassword}
                 isSavingCredentials={isSavingCredentials}
 	              newDepartmentName={newDepartmentName}
                 newDepartmentOwnerName={newDepartmentOwnerName}
                 newDepartmentManagerId={newDepartmentManagerId}
-                newDepartmentManagerEmail={newDepartmentManagerEmail}
                 newDepartmentManagerPassword={newDepartmentManagerPassword}
                 isDepartmentModalOpen={isDepartmentModalOpen}
 		              isSavingDepartment={isSavingDepartment}
 				              onNewDepartmentNameChange={setNewDepartmentName}
                 onNewDepartmentOwnerNameChange={setNewDepartmentOwnerName}
                 onNewDepartmentManagerIdChange={setNewDepartmentManagerId}
-                onNewDepartmentManagerEmailChange={setNewDepartmentManagerEmail}
                 onNewDepartmentManagerPasswordChange={setNewDepartmentManagerPassword}
 				              onAddDepartment={handleAddDepartment}
                 onDepartmentModalOpenChange={setIsDepartmentModalOpen}
@@ -2457,7 +2387,6 @@ export default function AdminPage() {
                 onCredentialEditStart={() => setIsEditingCredentials(true)}
                 onCredentialEditCancel={handleCancelCredentialEdit}
                 onCredentialLoginIdChange={setCredentialLoginId}
-                onCredentialEmailChange={setCredentialEmail}
                 onCredentialPasswordChange={setCredentialPassword}
                 onCredentialUpdate={handleUpdateCredentials}
               />
@@ -2508,7 +2437,7 @@ export default function AdminPage() {
 		          )}
         </section>
       </div>
-      {isOwnPasswordModalOpen && session.role === "master" && (
+      {isOwnPasswordModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-6">
           <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
             <p className="text-sm font-black text-blue-600">master 계정</p>
@@ -3191,12 +3120,10 @@ function TeacherManagementView({
   expandedTeacherId,
   selectedRetiredTeacherId,
   newTeacherLoginId,
-  newTeacherEmail,
   newTeacherPassword,
   newTeacherName,
   editingTeacher,
   teacherEditLoginId,
-  teacherEditEmail,
   teacherEditPassword,
   isLoadingTeachers,
   isSavingTeacher,
@@ -3204,14 +3131,12 @@ function TeacherManagementView({
   onExpandedTeacherChange,
   onRetiredTeacherChange,
   onNewTeacherLoginIdChange,
-  onNewTeacherEmailChange,
   onNewTeacherPasswordChange,
   onNewTeacherNameChange,
   onAddTeacher,
   onTeacherEditOpen,
   onTeacherEditClose,
   onTeacherEditLoginIdChange,
-  onTeacherEditEmailChange,
   onTeacherEditPasswordChange,
   onTeacherUpdate,
 }: {
@@ -3221,12 +3146,10 @@ function TeacherManagementView({
   expandedTeacherId: string;
   selectedRetiredTeacherId: string;
   newTeacherLoginId: string;
-  newTeacherEmail: string;
   newTeacherPassword: string;
   newTeacherName: string;
   editingTeacher: TeacherSummary | null;
   teacherEditLoginId: string;
-  teacherEditEmail: string;
   teacherEditPassword: string;
   isLoadingTeachers: boolean;
   isSavingTeacher: boolean;
@@ -3234,14 +3157,12 @@ function TeacherManagementView({
   onExpandedTeacherChange: (teacherId: string) => void;
   onRetiredTeacherChange: (teacherId: string) => void;
   onNewTeacherLoginIdChange: (id: string) => void;
-  onNewTeacherEmailChange: (email: string) => void;
   onNewTeacherPasswordChange: (password: string) => void;
   onNewTeacherNameChange: (name: string) => void;
   onAddTeacher: (event: FormEvent<HTMLFormElement>) => void;
   onTeacherEditOpen: (teacher: TeacherSummary) => void;
   onTeacherEditClose: () => void;
   onTeacherEditLoginIdChange: (id: string) => void;
-  onTeacherEditEmailChange: (email: string) => void;
   onTeacherEditPasswordChange: (password: string) => void;
   onTeacherUpdate: (retire?: boolean) => void;
 }) {
@@ -3389,18 +3310,6 @@ function TeacherManagementView({
               />
             </label>
             <label className="block">
-              <span className="text-sm font-bold text-slate-600">이메일</span>
-              <input
-                type="email"
-                required
-                autoCapitalize="none"
-                value={newTeacherEmail}
-                onChange={(event) => onNewTeacherEmailChange(event.target.value)}
-                className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-bold outline-none focus:border-blue-400 focus:bg-white"
-                placeholder="teacher@example.com"
-              />
-            </label>
-            <label className="block">
               <span className="text-sm font-bold text-slate-600">PW</span>
               <input
                 type="text"
@@ -3492,15 +3401,6 @@ function TeacherManagementView({
                   type="text"
                   value={teacherEditLoginId}
                   onChange={(event) => onTeacherEditLoginIdChange(event.target.value)}
-                  className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-bold outline-none focus:border-blue-400 focus:bg-white"
-                />
-              </label>
-              <label className="block">
-                <span className="text-sm font-bold text-slate-600">강사 이메일</span>
-                <input
-                  type="email"
-                  value={teacherEditEmail}
-                  onChange={(event) => onTeacherEditEmailChange(event.target.value)}
                   className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-bold outline-none focus:border-blue-400 focus:bg-white"
                 />
               </label>
@@ -3789,20 +3689,17 @@ function DepartmentManagementView({
   isCredentialModalOpen,
   isEditingCredentials,
   credentialLoginId,
-  credentialEmail,
   credentialPassword,
   isSavingCredentials,
   newDepartmentName,
   newDepartmentOwnerName,
   newDepartmentManagerId,
-  newDepartmentManagerEmail,
   newDepartmentManagerPassword,
   isDepartmentModalOpen,
   isSavingDepartment,
   onNewDepartmentNameChange,
   onNewDepartmentOwnerNameChange,
   onNewDepartmentManagerIdChange,
-  onNewDepartmentManagerEmailChange,
   onNewDepartmentManagerPasswordChange,
   onAddDepartment,
   onDepartmentModalOpenChange,
@@ -3818,7 +3715,6 @@ function DepartmentManagementView({
   onCredentialEditStart,
   onCredentialEditCancel,
   onCredentialLoginIdChange,
-  onCredentialEmailChange,
   onCredentialPasswordChange,
   onCredentialUpdate,
 }: {
@@ -3835,20 +3731,17 @@ function DepartmentManagementView({
   isCredentialModalOpen: boolean;
   isEditingCredentials: boolean;
   credentialLoginId: string;
-  credentialEmail: string;
   credentialPassword: string;
   isSavingCredentials: boolean;
   newDepartmentName: string;
   newDepartmentOwnerName: string;
   newDepartmentManagerId: string;
-  newDepartmentManagerEmail: string;
   newDepartmentManagerPassword: string;
   isDepartmentModalOpen: boolean;
   isSavingDepartment: boolean;
   onNewDepartmentNameChange: (name: string) => void;
   onNewDepartmentOwnerNameChange: (name: string) => void;
   onNewDepartmentManagerIdChange: (id: string) => void;
-  onNewDepartmentManagerEmailChange: (email: string) => void;
   onNewDepartmentManagerPasswordChange: (password: string) => void;
   onAddDepartment: (event: FormEvent<HTMLFormElement>) => void;
   onDepartmentModalOpenChange: (isOpen: boolean) => void;
@@ -3864,7 +3757,6 @@ function DepartmentManagementView({
   onCredentialEditStart: () => void;
   onCredentialEditCancel: () => void;
   onCredentialLoginIdChange: (id: string) => void;
-  onCredentialEmailChange: (email: string) => void;
   onCredentialPasswordChange: (password: string) => void;
   onCredentialUpdate: () => void;
 }) {
@@ -4116,16 +4008,6 @@ function DepartmentManagementView({
                 />
               </label>
               <label className="block">
-                <span className="text-sm font-bold text-slate-600">이메일</span>
-                <input
-                  type="email"
-                  readOnly={!isEditingCredentials}
-                  value={credentialEmail}
-                  onChange={(event) => onCredentialEmailChange(event.target.value)}
-                  className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-bold outline-none focus:border-blue-400 focus:bg-white read-only:text-slate-500"
-                />
-              </label>
-              <label className="block">
                 <span className="text-sm font-bold text-slate-600">PW</span>
                 <input
                   type="text"
@@ -4209,18 +4091,6 @@ function DepartmentManagementView({
                 onChange={(event) => onNewDepartmentManagerIdChange(event.target.value)}
                 className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-bold outline-none focus:border-blue-400 focus:bg-white"
                 placeholder="로그인 ID"
-              />
-            </label>
-            <label className="mt-4 block">
-              <span className="text-sm font-bold text-slate-600">manager 이메일</span>
-              <input
-                type="email"
-                required
-                autoCapitalize="none"
-                value={newDepartmentManagerEmail}
-                onChange={(event) => onNewDepartmentManagerEmailChange(event.target.value)}
-                className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-bold outline-none focus:border-blue-400 focus:bg-white"
-                placeholder="manager@example.com"
               />
             </label>
             <label className="mt-4 block">

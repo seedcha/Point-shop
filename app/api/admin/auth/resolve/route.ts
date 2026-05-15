@@ -6,7 +6,8 @@ const AUTH_EMAIL_DOMAIN = "@daddyslab.com";
 
 type AdminLookupRow = {
   login_id: string;
-  email: string | null;
+  auth_user_id: string;
+  role: string;
 };
 
 export async function POST(request: NextRequest) {
@@ -23,7 +24,7 @@ export async function POST(request: NextRequest) {
 
   const { data: profile, error } = await supabaseAdmin
     .from("admin_profiles")
-    .select("login_id, email")
+    .select("login_id, auth_user_id, role")
     .eq("login_id", identifier)
     .eq("is_active", true)
     .maybeSingle<AdminLookupRow>();
@@ -32,7 +33,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "계정을 찾을 수 없습니다." }, { status: 404 });
   }
 
-  return NextResponse.json({
-    email: profile.email?.trim().toLowerCase() || `${profile.login_id}${AUTH_EMAIL_DOMAIN}`,
-  });
+  if (profile.role === "master") {
+    const { data: authUser, error: authError } = await supabaseAdmin.auth.admin.getUserById(
+      profile.auth_user_id
+    );
+
+    if (authError || !authUser.user?.email) {
+      return NextResponse.json({ error: "master 계정 이메일을 찾을 수 없습니다." }, { status: 404 });
+    }
+
+    return NextResponse.json({ email: authUser.user.email.trim().toLowerCase() });
+  }
+
+  return NextResponse.json({ email: `${profile.login_id}${AUTH_EMAIL_DOMAIN}` });
 }
