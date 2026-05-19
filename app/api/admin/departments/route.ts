@@ -3,6 +3,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 const AUTH_EMAIL_DOMAIN = "@daddyslab.com";
+const LOGIN_ID_PATTERN = /^[a-z]+$/;
+const PASSWORD_MIN_LENGTH = 6;
+
+function formatAuthError(message: string | undefined, fallback: string) {
+  if (message?.toLowerCase().includes("password should be at least")) {
+    return "비밀번호는 6자 이상이어야 합니다.";
+  }
+
+  return message || fallback;
+}
 
 async function getMasterProfile(request: NextRequest) {
   const authorization = request.headers.get("authorization");
@@ -59,15 +69,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "가맹점 주인 이름은 1~50자로 입력해주세요." }, { status: 400 });
   }
 
-  if (!managerLoginId || managerLoginId.length > 50 || !/^[a-z0-9._-]+$/.test(managerLoginId)) {
+  if (!managerLoginId || managerLoginId.length > 50 || !LOGIN_ID_PATTERN.test(managerLoginId)) {
     return NextResponse.json(
-      { error: "manager ID는 영문 소문자, 숫자, ., _, - 조합으로 입력해주세요." },
+      { error: "manager ID는 영문만 입력해주세요." },
       { status: 400 }
     );
   }
 
-  if (managerPassword.length < 6 || managerPassword.length > 72) {
-    return NextResponse.json({ error: "manager PW는 6~72자로 입력해주세요." }, { status: 400 });
+  if (managerPassword.length < PASSWORD_MIN_LENGTH || managerPassword.length > 72) {
+    return NextResponse.json({ error: "manager PW는 6자 이상으로 입력해주세요." }, { status: 400 });
   }
 
   const { data: existingProfile, error: profileLookupError } = await supabaseAdmin
@@ -137,7 +147,7 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json(
-      { error: authError?.message ?? "manager Auth 계정을 생성하지 못했습니다." },
+      { error: formatAuthError(authError?.message, "manager Auth 계정을 생성하지 못했습니다.") },
       { status: 500 }
     );
   }

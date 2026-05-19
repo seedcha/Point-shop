@@ -1,13 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { ChangeEvent, FormEvent, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 
 import { supabase } from "@/lib/supabase/client";
 
 type AdminRole = "master" | "manager" | "staff";
-type AdminView = "students" | "teachers" | "shop" | "departments" | "pins" | "announcements";
+type AdminView = "students" | "teachers" | "shop" | "departments" | "announcements";
 
 type AdminProfileRow = {
   id: string;
@@ -58,11 +58,6 @@ type Product = {
   is_active: boolean;
   emoji: string | null;
   image_url: string | null;
-};
-
-type PinSetting = {
-  setting_key: string;
-  value: string;
 };
 
 type FranchiseSummary = {
@@ -147,10 +142,8 @@ type RetiredTeacherSummary = {
   }>;
 };
 
-const AUTH_EMAIL_DOMAIN = "@daddyslab.com";
-const SIGNUP_DEPARTMENTS = ["대치", "판교"];
-const DEPARTMENT_PIN_PREFIX = "dept_pin:";
-const PIN_CHARACTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const LOGIN_ID_PATTERN = /^[a-z]+$/;
+const PASSWORD_MIN_LENGTH = 6;
 const GRADE_OPTIONS = [
   "3세",
   "4세",
@@ -175,8 +168,8 @@ const KOREA_TIME_ZONE = "Asia/Seoul";
 
 const ROLE_LABELS: Record<AdminRole, string> = {
   master: "마스터",
-  manager: "매니저",
-  staff: "스태프",
+  manager: "랩장",
+  staff: "강사",
 };
 
 const FRANCHISE_MEMBER_ROLE_LABELS: Record<string, string> = {
@@ -252,20 +245,11 @@ function pickExcelValue(row: Record<string, string | number>, keys: string[]) {
 
 export default function AdminPage() {
   const [session, setSession] = useState<AdminSession | null>(null);
-  const [authMode, setAuthMode] = useState<"login" | "signup">("login");
   const [activeView, setActiveView] = useState<AdminView>("students");
   const [message, setMessage] = useState("");
   const [loginId, setLoginId] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [isLoggingIn, setIsLoggingIn] = useState(false);
-  const [signupId, setSignupId] = useState("");
-  const [signupPassword, setSignupPassword] = useState("");
-  const [signupConfirm, setSignupConfirm] = useState("");
-  const [signupName, setSignupName] = useState("");
-  const [signupDepartment, setSignupDepartment] = useState(SIGNUP_DEPARTMENTS[0]);
-  const [signupPin, setSignupPin] = useState("");
-  const [isSigningUp, setIsSigningUp] = useState(false);
-
   const [departments, setDepartments] = useState<Department[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -278,19 +262,16 @@ export default function AdminPage() {
   const [productPrice, setProductPrice] = useState("");
   const [productStock, setProductStock] = useState("");
   const [isSavingProduct, setIsSavingProduct] = useState(false);
-  const [pinSettings, setPinSettings] = useState<Record<string, string>>({});
-  const [savedPinDepartments, setSavedPinDepartments] = useState<Set<string>>(new Set());
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [dataMessage, setDataMessage] = useState("");
-  const [savingPinDepartmentId, setSavingPinDepartmentId] = useState<string | null>(null);
-  const [copiedPinDepartment, setCopiedPinDepartment] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState("");
+  const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [newDepartmentName, setNewDepartmentName] = useState("");
   const [newDepartmentOwnerName, setNewDepartmentOwnerName] = useState("");
   const [newDepartmentManagerId, setNewDepartmentManagerId] = useState("");
   const [newDepartmentManagerPassword, setNewDepartmentManagerPassword] = useState("");
   const [isDepartmentModalOpen, setIsDepartmentModalOpen] = useState(false);
   const [isSavingDepartment, setIsSavingDepartment] = useState(false);
-  const [deletingDepartmentId, setDeletingDepartmentId] = useState<string | null>(null);
   const [selectedFranchiseId, setSelectedFranchiseId] = useState("");
   const [selectedFranchiseTeacherId, setSelectedFranchiseTeacherId] = useState("");
   const [franchiseStudentSearchText, setFranchiseStudentSearchText] = useState("");
@@ -341,7 +322,6 @@ export default function AdminPage() {
   const [selectedRetiredTeacherId, setSelectedRetiredTeacherId] = useState<string>("");
   const [newTeacherLoginId, setNewTeacherLoginId] = useState("");
   const [newTeacherPassword, setNewTeacherPassword] = useState("");
-  const [newTeacherName, setNewTeacherName] = useState("");
   const [editingTeacher, setEditingTeacher] = useState<TeacherSummary | null>(null);
   const [teacherEditLoginId, setTeacherEditLoginId] = useState("");
   const [teacherEditPassword, setTeacherEditPassword] = useState("");
@@ -383,7 +363,6 @@ export default function AdminPage() {
         { id: "students" as const, label: "학생 관리", allowed: session?.role !== "master" || hasSelectedFranchise },
         { id: "teachers" as const, label: "강사 관리", allowed: canManageTeachers },
         { id: "shop" as const, label: "상점 관리", allowed: canUseShop },
-        { id: "pins" as const, label: "PIN 관리", allowed: canMutateFranchises },
         { id: "announcements" as const, label: "공지 관리", allowed: canMutateFranchises },
       ].filter((item) => item.allowed),
     [canManageFranchises, canManageTeachers, canMutateFranchises, canUseShop, hasSelectedFranchise, session?.role]
@@ -419,6 +398,26 @@ export default function AdminPage() {
       );
     });
   }, [scopedStudents, submittedStudentSearchText]);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const showToast = (nextMessage: string) => {
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
+    }
+
+    setToastMessage(nextMessage);
+    toastTimeoutRef.current = setTimeout(() => {
+      setToastMessage("");
+      toastTimeoutRef.current = null;
+    }, 2400);
+  };
 
   const loadAdminData = async (currentSession: AdminSession) => {
     setIsLoadingData(true);
@@ -477,32 +476,6 @@ export default function AdminPage() {
     setSelectedStudentId((studentRows ?? [])[0]?.id ?? "");
     setCheckedStudentIds(new Set());
     setSubmittedStudentSearchText("");
-
-    if (currentSession.role === "master") {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const response = await fetch("/api/admin/pins", {
-        headers: {
-          Authorization: `Bearer ${sessionData.session?.access_token ?? ""}`,
-        },
-      });
-
-      if (!response.ok) {
-        setDataMessage("PIN 설정을 불러오지 못했습니다.");
-      } else {
-        const payload = (await response.json()) as { pins?: PinSetting[] };
-        const nextPinSettings = Object.fromEntries(
-          (payload.pins ?? []).map((setting) => [
-            setting.setting_key.replace(DEPARTMENT_PIN_PREFIX, ""),
-            setting.value,
-          ])
-        );
-        setPinSettings(nextPinSettings);
-        setSavedPinDepartments(new Set(Object.keys(nextPinSettings)));
-      }
-    } else {
-      setPinSettings({});
-      setSavedPinDepartments(new Set());
-    }
 
     await loadStudentNotes();
     setIsLoadingData(false);
@@ -665,102 +638,12 @@ export default function AdminPage() {
     }
   };
 
-  const handleSignup = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setMessage("");
-
-    const normalizedSignupId = signupId.trim().toLowerCase();
-    const email = `${normalizedSignupId}${AUTH_EMAIL_DOMAIN}`;
-
-    if (!normalizedSignupId) {
-      setMessage("아이디를 입력해주세요.");
-      return;
-    }
-
-    if (signupPassword.length < 6) {
-      setMessage("비밀번호는 6자 이상이어야 합니다.");
-      return;
-    }
-
-    if (signupPassword !== signupConfirm) {
-      setMessage("비밀번호 확인이 일치하지 않습니다.");
-      return;
-    }
-
-    setIsSigningUp(true);
-
-    const { data: department, error: departmentError } = await supabase
-      .from("departments")
-      .select("id")
-      .eq("name", signupDepartment)
-      .single();
-
-    if (departmentError || !department) {
-      setMessage("가입할 가맹점을 찾을 수 없습니다.");
-      setIsSigningUp(false);
-      return;
-    }
-
-    const { data: pinSetting, error: pinSettingError } = await supabase
-      .from("admin_settings")
-      .select("value")
-      .eq("setting_key", `${DEPARTMENT_PIN_PREFIX}${signupDepartment}`)
-      .single();
-
-    if (pinSettingError || !pinSetting || pinSetting.value !== signupPin.trim().toUpperCase()) {
-      setMessage("관리자 가입 PIN이 올바르지 않습니다.");
-      setIsSigningUp(false);
-      return;
-    }
-
-    const { data: authData, error: signupError } = await supabase.auth.signUp({
-      email,
-      password: signupPassword,
-    });
-
-    if (signupError || !authData.user) {
-      setMessage("이미 사용 중인 아이디이거나 가입할 수 없는 계정입니다.");
-      setIsSigningUp(false);
-      return;
-    }
-
-    const { error: profileError } = await supabase.from("admin_profiles").insert({
-      login_id: normalizedSignupId,
-      manager_name: signupName.trim(),
-      auth_user_id: authData.user.id,
-      role: "staff",
-      department_id: department.id,
-    });
-
-    if (profileError) {
-      setMessage("Auth 계정은 생성되었지만 관리자 프로필 생성에 실패했습니다.");
-      setIsSigningUp(false);
-      return;
-    }
-
-    await supabase.auth.signOut();
-    setLoginId(normalizedSignupId);
-    setLoginPassword("");
-    setSignupId("");
-    setSignupPassword("");
-    setSignupConfirm("");
-    setSignupName("");
-    setSignupDepartment(SIGNUP_DEPARTMENTS[0]);
-    setSignupPin("");
-    setAuthMode("login");
-    setMessage("회원가입이 완료되었습니다. 승인된 권한으로 로그인해주세요.");
-    setIsSigningUp(false);
-  };
-
   const handleLogout = async () => {
     await supabase.auth.signOut();
     setSession(null);
     setStudents([]);
     setProducts([]);
     setDepartments([]);
-    setPinSettings({});
-    setSavedPinDepartments(new Set());
-    setCopiedPinDepartment(null);
     setSelectedStudentId("");
     setCheckedStudentIds(new Set());
     setSubmittedStudentSearchText("");
@@ -800,11 +683,11 @@ export default function AdminPage() {
   };
 
   const handleOwnPasswordUpdate = async () => {
-    if (!session || session.role !== "master") {
+    if (!session) {
       return;
     }
 
-    if (ownNewPassword.length < 6) {
+    if (ownNewPassword.length < PASSWORD_MIN_LENGTH) {
       setDataMessage("새 비밀번호는 6자 이상이어야 합니다.");
       return;
     }
@@ -842,7 +725,8 @@ export default function AdminPage() {
     setOwnNewPasswordConfirm("");
     setIsOwnPasswordModalOpen(false);
     setIsSavingOwnPassword(false);
-    setDataMessage("비밀번호를 변경했습니다.");
+    setDataMessage("");
+    showToast("비밀번호 수정이 완료되었습니다.");
   };
 
   const saveStudents = async (studentRows: Array<Pick<Student, "name" | "grade" | "parent_phone">>) => {
@@ -998,12 +882,12 @@ export default function AdminPage() {
       return;
     }
 
-    if (!managerLoginId) {
-      setDataMessage("manager ID를 입력해주세요.");
+    if (!LOGIN_ID_PATTERN.test(managerLoginId)) {
+      setDataMessage("manager ID는 영문만 입력해주세요.");
       return;
     }
 
-    if (managerPassword.length < 6) {
+    if (managerPassword.length < PASSWORD_MIN_LENGTH) {
       setDataMessage("manager PW는 6자 이상이어야 합니다.");
       return;
     }
@@ -1048,39 +932,6 @@ export default function AdminPage() {
     });
   };
 
-  const handleDeleteDepartment = async (departmentId: string) => {
-    if (!session || session.role !== "master") {
-      return;
-    }
-
-    setDeletingDepartmentId(departmentId);
-    setDataMessage("");
-
-    const { data: sessionData } = await supabase.auth.getSession();
-    const response = await fetch(`/api/admin/departments?departmentId=${departmentId}`, {
-      method: "DELETE",
-      headers: {
-        Authorization: `Bearer ${sessionData.session?.access_token ?? ""}`,
-      },
-    });
-
-    if (!response.ok) {
-      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-      setDataMessage(payload?.error ?? "가맹점을 삭제하지 못했습니다.");
-      setDeletingDepartmentId(null);
-      return;
-    }
-
-    setDataMessage("가맹점을 삭제했습니다.");
-    setDeletingDepartmentId(null);
-    await loadAdminData(session);
-    await loadFranchiseSummary({
-      departmentId: selectedFranchiseId === departmentId ? undefined : selectedFranchiseId,
-      teacherId: selectedFranchiseTeacherId || undefined,
-      studentQuery: submittedFranchiseStudentSearchText,
-    });
-  };
-
   const handleResetAdminPassword = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
@@ -1088,7 +939,7 @@ export default function AdminPage() {
       return;
     }
 
-    if (resetPassword.length < 6) {
+    if (resetPassword.length < PASSWORD_MIN_LENGTH) {
       setDataMessage("새 비밀번호는 6자 이상이어야 합니다.");
       return;
     }
@@ -1123,8 +974,9 @@ export default function AdminPage() {
 
     setResetPassword("");
     setResetPasswordConfirm("");
-    setDataMessage(`${franchiseSummary.selectedTeacher.name} 비밀번호를 변경했습니다.`);
     setIsResettingPassword(false);
+    setDataMessage("");
+    showToast(`${franchiseSummary.selectedTeacher.name} 비밀번호 수정이 완료되었습니다.`);
   };
 
   const openCreateProductModal = () => {
@@ -1292,8 +1144,13 @@ export default function AdminPage() {
   const handleAddTeacher = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    if (!newTeacherLoginId.trim() || !newTeacherPassword.trim() || !newTeacherName.trim()) {
-      setDataMessage("강사 ID, PW, 본명을 모두 입력해주세요.");
+    if (!LOGIN_ID_PATTERN.test(newTeacherLoginId.trim().toLowerCase())) {
+      setDataMessage("강사 ID는 영문만 입력해주세요.");
+      return;
+    }
+
+    if (newTeacherPassword.trim().length < PASSWORD_MIN_LENGTH) {
+      setDataMessage("강사 PW는 6자 이상이어야 합니다.");
       return;
     }
 
@@ -1317,7 +1174,7 @@ export default function AdminPage() {
       body: JSON.stringify({
         loginId: newTeacherLoginId,
         password: newTeacherPassword,
-        name: newTeacherName,
+        name: newTeacherLoginId.trim().toLowerCase(),
         departmentId,
       }),
     });
@@ -1331,11 +1188,15 @@ export default function AdminPage() {
 
     setNewTeacherLoginId("");
     setNewTeacherPassword("");
-    setNewTeacherName("");
     setDataMessage("강사를 추가했습니다.");
     setIsSavingTeacher(false);
     setTeacherTab("manage");
     await loadTeacherData();
+    await loadFranchiseSummary({
+      departmentId,
+      teacherId: selectedFranchiseTeacherId || undefined,
+      studentQuery: submittedFranchiseStudentSearchText,
+    });
   };
 
   const openTeacherEditModal = (teacher: TeacherSummary) => {
@@ -1357,8 +1218,12 @@ export default function AdminPage() {
 
     const departmentId = session?.role === "master" ? selectedFranchiseId : session?.departmentId;
 
-    if (!retire && (!teacherEditLoginId.trim() || teacherEditPassword.trim().length < 6)) {
-      setDataMessage("강사 ID와 6자 이상의 PW를 입력해주세요.");
+    if (
+      !retire &&
+      (!LOGIN_ID_PATTERN.test(teacherEditLoginId.trim().toLowerCase()) ||
+        teacherEditPassword.trim().length < PASSWORD_MIN_LENGTH)
+    ) {
+      setDataMessage("강사 ID는 영문만, PW는 6자 이상으로 입력해주세요.");
       return;
     }
 
@@ -1388,9 +1253,52 @@ export default function AdminPage() {
       return;
     }
 
-    setDataMessage(retire ? "강사를 등록 해제했습니다." : "강사 정보를 수정했습니다.");
+    if (retire) {
+      setDataMessage("강사를 등록 해제했습니다.");
+    } else {
+      setDataMessage("");
+      showToast("비밀번호 수정이 완료되었습니다.");
+    }
     setIsSavingTeacher(false);
     closeTeacherEditModal();
+    await loadTeacherData();
+  };
+
+  const handleReactivateTeacher = async (teacher: RetiredTeacherSummary) => {
+    const departmentId = session?.role === "master" ? selectedFranchiseId : session?.departmentId;
+
+    if (!departmentId) {
+      setDataMessage("가맹점을 먼저 선택해주세요.");
+      return;
+    }
+
+    setIsSavingTeacher(true);
+    setDataMessage("");
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const response = await fetch("/api/admin/teachers", {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${sessionData.session?.access_token ?? ""}`,
+      },
+      body: JSON.stringify({
+        teacherId: teacher.id,
+        departmentId,
+        reactivate: true,
+      }),
+    });
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      setDataMessage(payload?.error ?? "강사를 다시 활성화하지 못했습니다.");
+      setIsSavingTeacher(false);
+      return;
+    }
+
+    setSelectedRetiredTeacherId("");
+    setDataMessage(`${teacher.name} 강사를 다시 활성화했습니다.`);
+    setIsSavingTeacher(false);
     await loadTeacherData();
   };
 
@@ -1442,12 +1350,12 @@ export default function AdminPage() {
       return;
     }
 
-    if (!nextLoginId) {
-      setDataMessage("manager ID를 입력해주세요.");
+    if (!LOGIN_ID_PATTERN.test(nextLoginId)) {
+      setDataMessage("manager ID는 영문만 입력해주세요.");
       return;
     }
 
-    if (nextPassword.length < 6) {
+    if (nextPassword.length < PASSWORD_MIN_LENGTH) {
       setDataMessage("manager PW는 6자 이상이어야 합니다.");
       return;
     }
@@ -1479,88 +1387,15 @@ export default function AdminPage() {
     setCredentialLoginId(nextLoginId);
     setCredentialPassword("");
     setIsEditingCredentials(false);
+    setIsCredentialModalOpen(false);
     setIsSavingCredentials(false);
-    setDataMessage("manager 계정을 변경했습니다.");
+    setDataMessage("");
+    showToast("manager 비밀번호 수정이 완료되었습니다.");
     await loadFranchiseSummary({
       departmentId: selectedFranchiseId || undefined,
       teacherId: selectedFranchiseTeacherId || undefined,
       studentQuery: submittedFranchiseStudentSearchText,
     });
-  };
-
-  const handlePinChange = (departmentName: string, nextPin: string) => {
-    setPinSettings((currentSettings) => ({
-      ...currentSettings,
-      [departmentName]: nextPin
-        .toUpperCase()
-        .replace(/[^A-Z0-9]/g, "")
-        .slice(0, 12),
-    }));
-  };
-
-  const handleGeneratePin = (departmentName: string) => {
-    const nextPin = Array.from(
-      { length: 8 },
-      () => PIN_CHARACTERS[Math.floor(Math.random() * PIN_CHARACTERS.length)]
-    ).join("");
-    handlePinChange(departmentName, nextPin);
-  };
-
-  const handleSavePin = async (departmentName: string) => {
-    if (!session || session.role !== "master") {
-      return;
-    }
-
-    const pin = pinSettings[departmentName]?.trim().toUpperCase();
-
-    if (!pin || pin.length < 8) {
-      setDataMessage("PIN은 영문/숫자 조합 8자리 이상으로 입력해주세요.");
-      return;
-    }
-
-    setSavingPinDepartmentId(departmentName);
-    setDataMessage("");
-
-    const { data: sessionData } = await supabase.auth.getSession();
-    const response = await fetch("/api/admin/pins", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${sessionData.session?.access_token ?? ""}`,
-      },
-      body: JSON.stringify({ departmentName, pin }),
-    });
-
-    if (!response.ok) {
-      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-      setDataMessage(payload?.error ?? "PIN을 저장하지 못했습니다.");
-    } else {
-      setSavedPinDepartments((currentDepartments) => {
-        const nextDepartments = new Set(currentDepartments);
-        nextDepartments.add(departmentName);
-        return nextDepartments;
-      });
-      setDataMessage("가맹점 PIN을 저장했습니다.");
-    }
-
-    setSavingPinDepartmentId(null);
-  };
-
-  const handleCopyPin = async (departmentName: string) => {
-    const pin = pinSettings[departmentName]?.trim();
-
-    if (!pin) {
-      setDataMessage("복사할 PIN이 없습니다.");
-      return;
-    }
-
-    try {
-      await navigator.clipboard.writeText(pin);
-      setCopiedPinDepartment(departmentName);
-      setDataMessage("PIN을 복사했습니다.");
-    } catch {
-      setDataMessage("PIN을 복사하지 못했습니다.");
-    }
   };
 
   const resetAnnouncementDraft = () => {
@@ -1934,32 +1769,7 @@ export default function AdminPage() {
           <div className="text-center">
             <p className="text-sm font-bold text-blue-600">POINT SYSTEM</p>
             <h1 className="mt-2 text-3xl font-black text-slate-900">관리자</h1>
-            <p className="mt-2 text-sm text-slate-500">관리자 아이디로 로그인하거나 가입하세요.</p>
-          </div>
-
-          <div className="mt-8 grid grid-cols-2 rounded-2xl bg-slate-100 p-1">
-            <button
-              onClick={() => {
-                setAuthMode("login");
-                setMessage("");
-              }}
-              className={`rounded-xl py-3 text-sm font-bold transition ${
-                authMode === "login" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500"
-              }`}
-            >
-              로그인
-            </button>
-            <button
-              onClick={() => {
-                setAuthMode("signup");
-                setMessage("");
-              }}
-              className={`rounded-xl py-3 text-sm font-bold transition ${
-                authMode === "signup" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500"
-              }`}
-            >
-              회원가입
-            </button>
+            <p className="mt-2 text-sm text-slate-500">관리자 아이디로 로그인하세요.</p>
           </div>
 
           {message && (
@@ -1968,7 +1778,6 @@ export default function AdminPage() {
             </div>
           )}
 
-          {authMode === "login" ? (
           <form onSubmit={handleLogin} className="mt-6 space-y-4">
             <label className="block">
               <span className="text-sm font-bold text-slate-600">아이디</span>
@@ -2020,94 +1829,6 @@ export default function AdminPage() {
               </button>
             </div>
           </form>
-          ) : (
-          <form onSubmit={handleSignup} className="mt-6 space-y-4">
-            <label className="block">
-              <span className="text-sm font-bold text-slate-600">아이디</span>
-              <input
-                type="text"
-                required
-                autoCapitalize="none"
-                value={signupId}
-                onChange={(event) => setSignupId(event.target.value)}
-                className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 font-bold text-slate-800 outline-none transition focus:border-blue-400 focus:bg-white"
-                placeholder="아이디"
-              />
-            </label>
-            <label className="block">
-              <span className="text-sm font-bold text-slate-600">관리자 이름</span>
-              <input
-                type="text"
-                required
-                value={signupName}
-                onChange={(event) => setSignupName(event.target.value)}
-                className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 font-bold text-slate-800 outline-none transition focus:border-blue-400 focus:bg-white"
-                placeholder="관리자 이름"
-              />
-            </label>
-            <label className="block">
-              <span className="text-sm font-bold text-slate-600">가맹점</span>
-              <select
-                value={signupDepartment}
-                onChange={(event) => setSignupDepartment(event.target.value)}
-                className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 font-bold text-slate-800 outline-none transition focus:border-blue-400 focus:bg-white"
-              >
-                {SIGNUP_DEPARTMENTS.map((department) => (
-                  <option key={department} value={department}>
-                    {department}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block">
-              <span className="text-sm font-bold text-slate-600">비밀번호</span>
-              <input
-                type="password"
-                required
-                value={signupPassword}
-                onChange={(event) => setSignupPassword(event.target.value)}
-                className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 font-bold text-slate-800 outline-none transition focus:border-blue-400 focus:bg-white"
-                placeholder="6자 이상"
-              />
-            </label>
-            <label className="block">
-              <span className="text-sm font-bold text-slate-600">비밀번호 확인</span>
-              <input
-                type="password"
-                required
-                value={signupConfirm}
-                onChange={(event) => setSignupConfirm(event.target.value)}
-                className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 font-bold text-slate-800 outline-none transition focus:border-blue-400 focus:bg-white"
-                placeholder="비밀번호 확인"
-              />
-            </label>
-            <label className="block">
-              <span className="text-sm font-bold text-slate-600">관리자 가입 PIN</span>
-              <input
-                type="password"
-                required
-                autoCapitalize="characters"
-                value={signupPin}
-                onChange={(event) =>
-                  setSignupPin(
-                    event.target.value
-                      .toUpperCase()
-                      .replace(/[^A-Z0-9]/g, "")
-                      .slice(0, 12)
-                  )
-                }
-                className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 font-bold text-slate-800 outline-none transition focus:border-blue-400 focus:bg-white"
-                placeholder="관리자 가입 PIN"
-              />
-            </label>
-            <button
-              disabled={isSigningUp}
-              className="w-full rounded-2xl bg-blue-600 py-4 font-black text-white transition hover:bg-blue-700 disabled:bg-slate-300"
-            >
-              {isSigningUp ? "가입 중" : "회원가입"}
-            </button>
-          </form>
-          )}
         </section>
       </main>
     );
@@ -2115,6 +1836,11 @@ export default function AdminPage() {
 
   return (
     <main className="min-h-screen bg-slate-100 text-slate-900">
+      {toastMessage && (
+        <div className="fixed right-6 top-6 z-[60] rounded-2xl bg-slate-900 px-5 py-4 text-sm font-black text-white shadow-xl">
+          {toastMessage}
+        </div>
+      )}
       <div className="grid min-h-screen grid-cols-1 lg:grid-cols-[260px_1fr]">
         <aside className="border-b border-slate-200 bg-white px-5 py-6 lg:border-b-0 lg:border-r">
           <div className="flex items-center justify-between lg:block">
@@ -2205,7 +1931,6 @@ export default function AdminPage() {
 	                {activeView === "teachers" && "강사 관리"}
 	                {activeView === "shop" && "상점 관리"}
 	                {activeView === "departments" && "가맹점 관리"}
-	                {activeView === "pins" && "PIN 관리"}
 	                {activeView === "announcements" && "공지 관리"}
 	              </h2>
 	            </div>
@@ -2273,7 +1998,6 @@ export default function AdminPage() {
                 selectedRetiredTeacherId={selectedRetiredTeacherId}
                 newTeacherLoginId={newTeacherLoginId}
                 newTeacherPassword={newTeacherPassword}
-                newTeacherName={newTeacherName}
                 editingTeacher={editingTeacher}
                 teacherEditLoginId={teacherEditLoginId}
                 teacherEditPassword={teacherEditPassword}
@@ -2284,13 +2008,13 @@ export default function AdminPage() {
                 onRetiredTeacherChange={setSelectedRetiredTeacherId}
                 onNewTeacherLoginIdChange={setNewTeacherLoginId}
                 onNewTeacherPasswordChange={setNewTeacherPassword}
-                onNewTeacherNameChange={setNewTeacherName}
                 onAddTeacher={handleAddTeacher}
                 onTeacherEditOpen={openTeacherEditModal}
                 onTeacherEditClose={closeTeacherEditModal}
                 onTeacherEditLoginIdChange={setTeacherEditLoginId}
                 onTeacherEditPasswordChange={setTeacherEditPassword}
                 onTeacherUpdate={handleUpdateTeacher}
+                onTeacherReactivate={handleReactivateTeacher}
               />
 	          ) : activeView === "shop" ? (
 	            <ShopManagementView
@@ -2317,8 +2041,13 @@ export default function AdminPage() {
 	            />
 		          ) : activeView === "departments" ? (
 	            <DepartmentManagementView
-	              departments={departments}
-                canMutateFranchises={canMutateFranchises}
+		      departments={
+                session.role === "master"
+                  ? departments
+                  : departments.filter((department) => department.id === session.departmentId)
+              }
+	                canMutateFranchises={canMutateFranchises}
+                canManageTeachers={canManageTeachers}
                 franchiseSummary={franchiseSummary}
                 selectedFranchiseId={selectedFranchiseId}
                 selectedFranchiseTeacherId={selectedFranchiseTeacherId}
@@ -2331,8 +2060,11 @@ export default function AdminPage() {
                 isEditingCredentials={isEditingCredentials}
                 credentialLoginId={credentialLoginId}
                 credentialPassword={credentialPassword}
-                isSavingCredentials={isSavingCredentials}
-	              newDepartmentName={newDepartmentName}
+	                isSavingCredentials={isSavingCredentials}
+                newTeacherLoginId={newTeacherLoginId}
+                newTeacherPassword={newTeacherPassword}
+                isSavingTeacher={isSavingTeacher}
+		              newDepartmentName={newDepartmentName}
                 newDepartmentOwnerName={newDepartmentOwnerName}
                 newDepartmentManagerId={newDepartmentManagerId}
                 newDepartmentManagerPassword={newDepartmentManagerPassword}
@@ -2387,23 +2119,12 @@ export default function AdminPage() {
                 onCredentialEditStart={() => setIsEditingCredentials(true)}
                 onCredentialEditCancel={handleCancelCredentialEdit}
                 onCredentialLoginIdChange={setCredentialLoginId}
-                onCredentialPasswordChange={setCredentialPassword}
-                onCredentialUpdate={handleUpdateCredentials}
-              />
-		          ) : activeView === "pins" ? (
-		            <PinManagementView
-		              departments={departments}
-		              pinSettings={pinSettings}
-		              savedPinDepartments={savedPinDepartments}
-		              savingPinDepartmentId={savingPinDepartmentId}
-		              copiedPinDepartment={copiedPinDepartment}
-		              onPinChange={handlePinChange}
-		              onGeneratePin={handleGeneratePin}
-		              onSavePin={handleSavePin}
-		              onCopyPin={handleCopyPin}
-		              onDeleteDepartment={handleDeleteDepartment}
-		              deletingDepartmentId={deletingDepartmentId}
-		            />
+	                onCredentialPasswordChange={setCredentialPassword}
+	                onCredentialUpdate={handleUpdateCredentials}
+                onNewTeacherLoginIdChange={setNewTeacherLoginId}
+                onNewTeacherPasswordChange={setNewTeacherPassword}
+                onAddTeacher={handleAddTeacher}
+	              />
 		          ) : (
 		            <AnnouncementManagementView
 		              mode={announcementMode}
@@ -2440,7 +2161,7 @@ export default function AdminPage() {
       {isOwnPasswordModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-6">
           <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
-            <p className="text-sm font-black text-blue-600">master 계정</p>
+            <p className="text-sm font-black text-blue-600">{ROLE_LABELS[session.role]} 계정</p>
             <h3 className="mt-1 text-2xl font-black">내 비밀번호 변경</h3>
             <div className="mt-6 space-y-4">
               <label className="block">
@@ -3121,7 +2842,6 @@ function TeacherManagementView({
   selectedRetiredTeacherId,
   newTeacherLoginId,
   newTeacherPassword,
-  newTeacherName,
   editingTeacher,
   teacherEditLoginId,
   teacherEditPassword,
@@ -3132,13 +2852,13 @@ function TeacherManagementView({
   onRetiredTeacherChange,
   onNewTeacherLoginIdChange,
   onNewTeacherPasswordChange,
-  onNewTeacherNameChange,
   onAddTeacher,
   onTeacherEditOpen,
   onTeacherEditClose,
   onTeacherEditLoginIdChange,
   onTeacherEditPasswordChange,
   onTeacherUpdate,
+  onTeacherReactivate,
 }: {
   teacherTab: "manage" | "create" | "retired";
   teachers: TeacherSummary[];
@@ -3147,7 +2867,6 @@ function TeacherManagementView({
   selectedRetiredTeacherId: string;
   newTeacherLoginId: string;
   newTeacherPassword: string;
-  newTeacherName: string;
   editingTeacher: TeacherSummary | null;
   teacherEditLoginId: string;
   teacherEditPassword: string;
@@ -3158,13 +2877,13 @@ function TeacherManagementView({
   onRetiredTeacherChange: (teacherId: string) => void;
   onNewTeacherLoginIdChange: (id: string) => void;
   onNewTeacherPasswordChange: (password: string) => void;
-  onNewTeacherNameChange: (name: string) => void;
   onAddTeacher: (event: FormEvent<HTMLFormElement>) => void;
   onTeacherEditOpen: (teacher: TeacherSummary) => void;
   onTeacherEditClose: () => void;
   onTeacherEditLoginIdChange: (id: string) => void;
   onTeacherEditPasswordChange: (password: string) => void;
   onTeacherUpdate: (retire?: boolean) => void;
+  onTeacherReactivate: (teacher: RetiredTeacherSummary) => void;
 }) {
   const expandedTeacher = teachers.find((teacher) => teacher.id === expandedTeacherId) ?? teachers[0] ?? null;
   const selectedRetiredTeacher =
@@ -3319,17 +3038,6 @@ function TeacherManagementView({
                 className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-bold outline-none focus:border-blue-400 focus:bg-white"
               />
             </label>
-            <label className="block">
-              <span className="text-sm font-bold text-slate-600">본명</span>
-              <input
-                type="text"
-                required
-                value={newTeacherName}
-                onChange={(event) => onNewTeacherNameChange(event.target.value)}
-                className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-bold outline-none focus:border-blue-400 focus:bg-white"
-                placeholder="예: 차윤빈"
-              />
-            </label>
           </div>
           <button
             disabled={isSavingTeacher}
@@ -3344,47 +3052,44 @@ function TeacherManagementView({
         <section className="grid gap-5 rounded-2xl bg-white p-5 shadow-sm lg:grid-cols-[260px_1fr]">
           <aside>
             <select
-              value={selectedRetiredTeacherId}
+              value={selectedRetiredTeacher?.id ?? ""}
               onChange={(event) => onRetiredTeacherChange(event.target.value)}
               className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-bold outline-none"
             >
+              {!retiredTeachers.length && <option value="">퇴사 강사 없음</option>}
               {retiredTeachers.map((teacher) => (
                 <option key={teacher.id} value={teacher.id}>
-                  {teacher.loginId}({teacher.name}) - {FRANCHISE_MEMBER_ROLE_LABELS[teacher.role] ?? teacher.role}
+                  {teacher.loginId}({teacher.name})
                 </option>
               ))}
             </select>
           </aside>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px] text-left text-sm">
-              <thead className="bg-slate-50 text-xs font-black text-slate-500">
-                <tr>
-                  <th className="px-5 py-3">학생 이름</th>
-                  <th className="px-5 py-3">부모님 번호</th>
-                  <th className="px-5 py-3">학년</th>
-                  <th className="px-5 py-3">지급 및 회수 포인트</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {(selectedRetiredTeacher?.students ?? []).map((student) => (
-                  <tr key={`${student.studentName}-${student.parentPhone}`}>
-                    <td className="px-5 py-4 font-black">{student.studentName}</td>
-                    <td className="px-5 py-4 text-slate-500">{student.parentPhone}</td>
-                    <td className="px-5 py-4 text-slate-500">{student.grade}</td>
-                    <td className="px-5 py-4 font-black text-blue-600">
-                      {student.points.toLocaleString()} DP
-                    </td>
-                  </tr>
-                ))}
-                {!selectedRetiredTeacher?.students.length && (
-                  <tr>
-                    <td colSpan={4} className="px-5 py-12 text-center font-bold text-slate-400">
-                      아직 지급/회수 내역이 없습니다.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+          <div className="rounded-xl bg-slate-50 p-5">
+            {selectedRetiredTeacher ? (
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm font-black text-slate-500">퇴사 강사</p>
+                  <p className="mt-2 text-xl font-black text-slate-900">
+                    {selectedRetiredTeacher.loginId}({selectedRetiredTeacher.name})
+                  </p>
+                  <p className="mt-1 text-xs font-bold text-slate-400">
+                    {FRANCHISE_MEMBER_ROLE_LABELS[selectedRetiredTeacher.role] ?? selectedRetiredTeacher.role}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={isSavingTeacher}
+                  onClick={() => onTeacherReactivate(selectedRetiredTeacher)}
+                  className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-black text-white hover:bg-blue-700 disabled:bg-slate-300"
+                >
+                  {isSavingTeacher ? "활성화 중" : "다시 활성화"}
+                </button>
+              </div>
+            ) : (
+              <p className="py-8 text-center text-sm font-bold text-slate-400">
+                퇴사 처리된 강사가 없습니다.
+              </p>
+            )}
           </div>
         </section>
       )}
@@ -3417,7 +3122,11 @@ function TeacherManagementView({
             <button
               type="button"
               disabled={isSavingTeacher}
-              onClick={() => onTeacherUpdate(true)}
+              onClick={() => {
+                if (window.confirm(`'${editingTeacher.name}' 을 정말 강사 목록에서 삭제하시겠습니까?`)) {
+                  onTeacherUpdate(true);
+                }
+              }}
               className="mt-4 w-full rounded-xl bg-rose-50 px-4 py-3 text-sm font-black text-rose-600 hover:bg-rose-100 disabled:text-rose-300"
             >
               강사 등록 해제
@@ -3678,6 +3387,7 @@ function ShopManagementView({
 function DepartmentManagementView({
   departments,
   canMutateFranchises,
+  canManageTeachers,
   franchiseSummary,
   selectedFranchiseId,
   selectedFranchiseTeacherId,
@@ -3691,6 +3401,9 @@ function DepartmentManagementView({
   credentialLoginId,
   credentialPassword,
   isSavingCredentials,
+  newTeacherLoginId,
+  newTeacherPassword,
+  isSavingTeacher,
   newDepartmentName,
   newDepartmentOwnerName,
   newDepartmentManagerId,
@@ -3717,9 +3430,13 @@ function DepartmentManagementView({
   onCredentialLoginIdChange,
   onCredentialPasswordChange,
   onCredentialUpdate,
+  onNewTeacherLoginIdChange,
+  onNewTeacherPasswordChange,
+  onAddTeacher,
 }: {
   departments: Department[];
   canMutateFranchises: boolean;
+  canManageTeachers: boolean;
   franchiseSummary: FranchiseSummary | null;
   selectedFranchiseId: string;
   selectedFranchiseTeacherId: string;
@@ -3733,6 +3450,9 @@ function DepartmentManagementView({
   credentialLoginId: string;
   credentialPassword: string;
   isSavingCredentials: boolean;
+  newTeacherLoginId: string;
+  newTeacherPassword: string;
+  isSavingTeacher: boolean;
   newDepartmentName: string;
   newDepartmentOwnerName: string;
   newDepartmentManagerId: string;
@@ -3759,6 +3479,9 @@ function DepartmentManagementView({
   onCredentialLoginIdChange: (id: string) => void;
   onCredentialPasswordChange: (password: string) => void;
   onCredentialUpdate: () => void;
+  onNewTeacherLoginIdChange: (id: string) => void;
+  onNewTeacherPasswordChange: (password: string) => void;
+  onAddTeacher: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   const selectedDepartment = franchiseSummary?.selectedDepartment ?? null;
   const credentialTarget =
@@ -3830,7 +3553,36 @@ function DepartmentManagementView({
 
       <div className="grid gap-6 xl:grid-cols-[420px_1fr]">
         <section className="rounded-2xl bg-white p-5 shadow-sm">
-          <p className="text-sm font-black text-slate-500">해당 가맹점의 강사</p>
+          <div className="flex flex-col gap-4">
+            <p className="text-sm font-black text-slate-500">해당 가맹점의 강사</p>
+            {canManageTeachers && selectedDepartment && (
+              <form onSubmit={onAddTeacher} className="grid gap-3 lg:grid-cols-[1fr_1fr_auto]">
+                <input
+                  type="text"
+                  required
+                  autoCapitalize="none"
+                  value={newTeacherLoginId}
+                  onChange={(event) => onNewTeacherLoginIdChange(event.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold outline-none focus:border-blue-400 focus:bg-white"
+                  placeholder="강사 ID"
+                />
+                <input
+                  type="text"
+                  required
+                  value={newTeacherPassword}
+                  onChange={(event) => onNewTeacherPasswordChange(event.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold outline-none focus:border-blue-400 focus:bg-white"
+                  placeholder="PW 6자 이상"
+                />
+                <button
+                  disabled={isSavingTeacher}
+                  className="rounded-xl bg-blue-600 px-4 py-3 text-sm font-black text-white hover:bg-blue-700 disabled:bg-slate-300"
+                >
+                  {isSavingTeacher ? "추가 중" : "강사 추가"}
+                </button>
+              </form>
+            )}
+          </div>
           <div className="mt-4 space-y-2">
             {(franchiseSummary?.teachers ?? []).map((teacher) => (
               <button
@@ -3884,7 +3636,7 @@ function DepartmentManagementView({
                   value={resetPassword}
                   onChange={(event) => onResetPasswordChange(event.target.value)}
                   className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold outline-none focus:border-blue-400 focus:bg-white"
-                  placeholder="4자리 이상"
+                  placeholder="6자 이상"
                 />
               </label>
               <label className="block">
@@ -4098,7 +3850,7 @@ function DepartmentManagementView({
               <input
                 type="text"
                 required
-                minLength={6}
+                minLength={PASSWORD_MIN_LENGTH}
                 value={newDepartmentManagerPassword}
                 onChange={(event) => onNewDepartmentManagerPasswordChange(event.target.value)}
                 className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-bold outline-none focus:border-blue-400 focus:bg-white"
@@ -4115,92 +3867,6 @@ function DepartmentManagementView({
         </div>
       )}
     </div>
-  );
-}
-
-function PinManagementView({
-  departments,
-  pinSettings,
-  savedPinDepartments,
-  savingPinDepartmentId,
-  copiedPinDepartment,
-  deletingDepartmentId,
-  onPinChange,
-  onGeneratePin,
-  onSavePin,
-  onCopyPin,
-  onDeleteDepartment,
-}: {
-  departments: Department[];
-  pinSettings: Record<string, string>;
-  savedPinDepartments: Set<string>;
-  savingPinDepartmentId: string | null;
-  copiedPinDepartment: string | null;
-  deletingDepartmentId: string | null;
-  onPinChange: (departmentName: string, nextPin: string) => void;
-  onGeneratePin: (departmentName: string) => void;
-  onSavePin: (departmentName: string) => void;
-  onCopyPin: (departmentName: string) => void;
-  onDeleteDepartment: (departmentId: string) => void;
-}) {
-  return (
-    <section className="mt-8 overflow-hidden rounded-2xl bg-white shadow-sm">
-      <div className="border-b border-slate-100 px-5 py-4">
-        <p className="text-sm font-black text-slate-500">가맹점 목록 및 가입 PIN</p>
-      </div>
-      <div className="divide-y divide-slate-100">
-        {departments.map((department) => (
-          <div
-            key={department.id}
-            className="grid gap-4 px-5 py-5 xl:grid-cols-[160px_1fr_auto_auto_auto_auto]"
-          >
-            <div>
-              <p className="text-base font-black">{department.name}</p>
-            </div>
-            <input
-              type="text"
-              autoCapitalize="characters"
-              value={pinSettings[department.name] ?? ""}
-              onChange={(event) => onPinChange(department.name, event.target.value)}
-              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-black tracking-widest outline-none focus:border-blue-400 focus:bg-white"
-              placeholder="가입 PIN 없음"
-            />
-            <button
-              disabled={!pinSettings[department.name]}
-              onClick={() => onCopyPin(department.name)}
-              className="rounded-xl bg-slate-100 px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-200 disabled:bg-slate-50 disabled:text-slate-300"
-            >
-              {copiedPinDepartment === department.name ? "복사됨" : "복사"}
-            </button>
-            <button
-              onClick={() => onGeneratePin(department.name)}
-              className="rounded-xl bg-slate-100 px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-200"
-            >
-              {savedPinDepartments.has(department.name) ? "PIN 설정" : "PIN 생성"}
-            </button>
-            <button
-              disabled={savingPinDepartmentId === department.name}
-              onClick={() => onSavePin(department.name)}
-              className="rounded-xl bg-blue-600 px-4 py-3 text-sm font-black text-white hover:bg-blue-700 disabled:bg-slate-300"
-            >
-              {savingPinDepartmentId === department.name ? "저장 중" : "PIN 저장"}
-            </button>
-            <button
-              disabled={deletingDepartmentId === department.id}
-              onClick={() => onDeleteDepartment(department.id)}
-              className="rounded-xl bg-slate-100 px-4 py-3 text-sm font-black text-slate-700 hover:bg-red-50 hover:text-red-600 disabled:bg-slate-200 disabled:text-slate-400"
-            >
-              {deletingDepartmentId === department.id ? "삭제 중" : "삭제"}
-            </button>
-          </div>
-        ))}
-        {!departments.length && (
-          <div className="px-5 py-12 text-center font-bold text-slate-400">
-            아직 가맹점이 없습니다.
-          </div>
-        )}
-      </div>
-    </section>
   );
 }
 

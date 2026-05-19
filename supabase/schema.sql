@@ -28,15 +28,6 @@ create table admin_profiles (
     updated_at timestamptz not null default now() -- 업데이트 시간
 );
 
--- 관리자용 PIN 설정
-create table admin_settings (
-    setting_key varchar(50) primary key, -- 설정 키
-    value text not null, -- 설정 값(PIN은 bcrypt 해시로 저장)
-    updated_by uuid references admin_profiles(id), -- 설정 변경자
-    created_at timestamptz not null default now(), -- 생성 시간
-    updated_at timestamptz not null default now() -- 업데이트 시간
-);
-
 -- 시간표
 create table timetable (
     id uuid primary key default gen_random_uuid(), -- 시간표 ID

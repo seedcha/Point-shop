@@ -5,6 +5,16 @@ import { FormEvent, useState } from "react";
 
 import { supabase } from "@/lib/supabase/client";
 
+const PASSWORD_MIN_LENGTH = 6;
+
+function formatAuthError(message: string | undefined) {
+  if (message?.toLowerCase().includes("password should be at least")) {
+    return "비밀번호는 6자 이상이어야 합니다.";
+  }
+
+  return message || "비밀번호를 변경하지 못했습니다.";
+}
+
 export default function AdminResetPasswordPage() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -14,7 +24,7 @@ export default function AdminResetPasswordPage() {
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    if (password.length < 6) {
+    if (password.length < PASSWORD_MIN_LENGTH) {
       setMessage("비밀번호는 6자 이상이어야 합니다.");
       return;
     }
@@ -32,7 +42,7 @@ export default function AdminResetPasswordPage() {
     setIsSaving(false);
 
     if (error) {
-      setMessage(error.message || "비밀번호를 변경하지 못했습니다.");
+      setMessage(formatAuthError(error.message));
       return;
     }
 
