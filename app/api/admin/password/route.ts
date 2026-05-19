@@ -2,9 +2,24 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
+const AUTH_EMAIL_DOMAIN = "@daddyslab.com";
+const LOGIN_ID_PATTERN = /^[a-z]+$/;
+const PASSWORD_MIN_LENGTH = 6;
+
+function formatAuthError(message: string | undefined, fallback: string) {
+  if (message?.toLowerCase().includes("password should be at least")) {
+    return "비밀번호는 6자 이상이어야 합니다.";
+  }
+
+  return message || fallback;
+}
+
+type AdminRole = "master" | "manager" | "staff";
+
 type AdminProfile = {
   id: string;
-  role: string;
+  department_id: string | null;
+  role: AdminRole;
   is_active: boolean;
 };
 
@@ -13,11 +28,12 @@ type TargetAdminProfile = {
   login_id: string;
   auth_user_id: string;
   manager_name: string;
-  role: string;
+  department_id: string | null;
+  role: AdminRole;
   is_active: boolean;
 };
 
-async function getMasterProfile(request: NextRequest) {
+async function getActorProfile(request: NextRequest) {
   const authorization = request.headers.get("authorization");
   const token = authorization?.startsWith("Bearer ") ? authorization.slice(7) : null;
 
@@ -33,23 +49,39 @@ async function getMasterProfile(request: NextRequest) {
 
   const { data: profile, error: profileError } = await supabaseAdmin
     .from("admin_profiles")
-    .select("id, role, is_active")
+    .select("id, department_id, role, is_active")
     .eq("auth_user_id", userData.user.id)
     .eq("is_active", true)
     .single<AdminProfile>();
 
-  if (profileError || !profile || profile.role !== "master") {
-    return { error: "마스터 관리자만 사용할 수 있습니다.", status: 403 as const };
+  if (profileError || !profile) {
+    return { error: "활성화된 관리자 계정을 찾을 수 없습니다.", status: 403 as const };
   }
 
-  return { profile };
+  return { profile, authUser: userData.user };
+}
+
+function canUpdateSubordinatePassword(actor: AdminProfile, target: TargetAdminProfile) {
+  if (actor.id === target.id) {
+    return false;
+  }
+
+  if (actor.role === "master") {
+    return target.role === "manager" || target.role === "staff";
+  }
+
+  if (actor.role === "manager") {
+    return target.role === "staff" && target.department_id === actor.department_id;
+  }
+
+  return false;
 }
 
 export async function POST(request: NextRequest) {
-  const master = await getMasterProfile(request);
+  const actor = await getActorProfile(request);
 
-  if ("error" in master) {
-    return NextResponse.json({ error: master.error }, { status: master.status });
+  if ("error" in actor) {
+    return NextResponse.json({ error: actor.error }, { status: actor.status });
   }
 
   const body = (await request.json()) as {
@@ -65,20 +97,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "변경할 관리자 계정을 선택해주세요." }, { status: 400 });
   }
 
-  if (!password || password.length < 6 || password.length > 72) {
-    return NextResponse.json({ error: "비밀번호는 6~72자로 입력해주세요." }, { status: 400 });
+  if (!password || password.length < PASSWORD_MIN_LENGTH || password.length > 72) {
+    return NextResponse.json({ error: "비밀번호는 6자 이상으로 입력해주세요." }, { status: 400 });
   }
 
-  if (loginId && (loginId.length > 50 || !/^[a-z0-9._-]+$/.test(loginId))) {
+  if (loginId && (loginId.length > 50 || !LOGIN_ID_PATTERN.test(loginId))) {
     return NextResponse.json(
-      { error: "manager ID는 영문 소문자, 숫자, ., _, - 조합으로 입력해주세요." },
+      { error: "ID는 영문만 입력해주세요." },
       { status: 400 }
     );
   }
 
   const { data: targetProfile, error: targetError } = await supabaseAdmin
     .from("admin_profiles")
-    .select("id, login_id, auth_user_id, manager_name, role, is_active")
+    .select("id, login_id, auth_user_id, manager_name, department_id, role, is_active")
     .eq("id", adminProfileId)
     .eq("is_active", true)
     .single<TargetAdminProfile>();
@@ -87,8 +119,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "활성화된 관리자 계정을 찾을 수 없습니다." }, { status: 404 });
   }
 
-  if (!["master", "manager", "staff"].includes(targetProfile.role)) {
-    return NextResponse.json({ error: "관리자 계정만 변경할 수 있습니다." }, { status: 400 });
+  if (!canUpdateSubordinatePassword(actor.profile, targetProfile)) {
+    return NextResponse.json({ error: "하위 계정의 비밀번호만 변경할 수 있습니다." }, { status: 403 });
   }
 
   if (loginId && loginId !== targetProfile.login_id) {
@@ -99,17 +131,19 @@ export async function POST(request: NextRequest) {
       .maybeSingle();
 
     if (lookupError) {
-      return NextResponse.json({ error: "manager ID 중복 확인에 실패했습니다." }, { status: 500 });
+      return NextResponse.json({ error: "ID 중복 확인에 실패했습니다." }, { status: 500 });
     }
 
     if (existingProfile) {
-      return NextResponse.json({ error: "이미 사용 중인 manager ID입니다." }, { status: 409 });
+      return NextResponse.json({ error: "이미 사용 중인 ID입니다." }, { status: 409 });
     }
   }
 
-  const updatePayload = loginId
-    ? { email: `${loginId}@daddyslab.com`, password }
-    : { password };
+  const updatePayload: { email?: string; password: string } = { password };
+
+  if (loginId) {
+    updatePayload.email = `${loginId}${AUTH_EMAIL_DOMAIN}`;
+  }
 
   const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
     targetProfile.auth_user_id,
@@ -118,21 +152,80 @@ export async function POST(request: NextRequest) {
 
   if (updateError) {
     return NextResponse.json(
-      { error: updateError.message || "계정 정보를 변경하지 못했습니다." },
+      { error: formatAuthError(updateError.message, "계정 정보를 변경하지 못했습니다.") },
       { status: 500 }
     );
   }
 
+  const profileUpdate: { login_id?: string; updated_at: string } = {
+    updated_at: new Date().toISOString(),
+  };
+
   if (loginId && loginId !== targetProfile.login_id) {
+    profileUpdate.login_id = loginId;
+  }
+
+  if (profileUpdate.login_id) {
     const { error: profileUpdateError } = await supabaseAdmin
       .from("admin_profiles")
-      .update({ login_id: loginId, updated_at: new Date().toISOString() })
+      .update(profileUpdate)
       .eq("id", targetProfile.id);
 
     if (profileUpdateError) {
-      return NextResponse.json({ error: "manager ID를 변경하지 못했습니다." }, { status: 500 });
+      return NextResponse.json({ error: "프로필 정보를 변경하지 못했습니다." }, { status: 500 });
     }
   }
 
   return NextResponse.json({ ok: true, managerName: targetProfile.manager_name });
+}
+
+export async function PATCH(request: NextRequest) {
+  const actor = await getActorProfile(request);
+
+  if ("error" in actor) {
+    return NextResponse.json({ error: actor.error }, { status: actor.status });
+  }
+
+  const body = (await request.json()) as {
+    currentPassword?: string;
+    password?: string;
+  };
+  const currentPassword = body.currentPassword?.trim();
+  const password = body.password?.trim();
+  const email = actor.authUser.email?.trim().toLowerCase();
+
+  if (!email) {
+    return NextResponse.json({ error: "계정 이메일이 필요합니다." }, { status: 400 });
+  }
+
+  if (!currentPassword) {
+    return NextResponse.json({ error: "현재 비밀번호를 입력해주세요." }, { status: 400 });
+  }
+
+  if (!password || password.length < PASSWORD_MIN_LENGTH || password.length > 72) {
+    return NextResponse.json({ error: "새 비밀번호는 6자 이상으로 입력해주세요." }, { status: 400 });
+  }
+
+  const { error: verifyError } = await supabaseAdmin.auth.signInWithPassword({
+    email,
+    password: currentPassword,
+  });
+
+  if (verifyError) {
+    return NextResponse.json({ error: "현재 비밀번호가 올바르지 않습니다." }, { status: 400 });
+  }
+
+  const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
+    actor.authUser.id,
+    { password }
+  );
+
+  if (updateError) {
+    return NextResponse.json(
+      { error: formatAuthError(updateError.message, "비밀번호를 변경하지 못했습니다.") },
+      { status: 500 }
+    );
+  }
+
+  return NextResponse.json({ ok: true });
 }

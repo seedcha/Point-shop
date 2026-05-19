@@ -3,11 +3,21 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 const AUTH_EMAIL_DOMAIN = "@daddyslab.com";
+const LOGIN_ID_PATTERN = /^[a-z]+$/;
+const PASSWORD_MIN_LENGTH = 6;
+
+function formatAuthError(message: string | undefined, fallback: string) {
+  if (message?.toLowerCase().includes("password should be at least")) {
+    return "비밀번호는 6자 이상이어야 합니다.";
+  }
+
+  return message || fallback;
+}
 
 type AdminProfile = {
   id: string;
   role: string;
-  department_id: string;
+  department_id: string | null;
 };
 
 async function getManagerProfile(request: NextRequest) {
@@ -56,8 +66,12 @@ export async function GET(request: NextRequest) {
   const requestedDepartmentId = new URL(request.url).searchParams.get("departmentId")?.trim();
   const departmentId =
     admin.profile.role === "master"
-      ? requestedDepartmentId ?? admin.profile.department_id
+      ? requestedDepartmentId
       : admin.profile.department_id;
+
+  if (!departmentId) {
+    return NextResponse.json({ error: "가맹점을 선택해주세요." }, { status: 400 });
+  }
 
   const { data: teacherRows, error: teacherError } = await supabaseAdmin
     .from("admin_profiles")
@@ -191,21 +205,26 @@ export async function POST(request: NextRequest) {
   };
   const departmentId =
     admin.profile.role === "master"
-      ? body.departmentId?.trim() ?? admin.profile.department_id
+      ? body.departmentId?.trim()
       : admin.profile.department_id;
+  if (!departmentId) {
+    return NextResponse.json({ error: "가맹점을 선택해주세요." }, { status: 400 });
+  }
+
   const loginId = body.loginId?.trim().toLowerCase();
   const password = body.password?.trim();
   const name = body.name?.trim();
+  const email = loginId ? `${loginId}${AUTH_EMAIL_DOMAIN}` : "";
 
-  if (!loginId || loginId.length > 50 || !/^[a-z0-9._-]+$/.test(loginId)) {
-    return NextResponse.json({ error: "ID는 영어 이름 기반으로 입력해주세요." }, { status: 400 });
+  if (!loginId || loginId.length > 50 || !LOGIN_ID_PATTERN.test(loginId)) {
+    return NextResponse.json({ error: "ID는 영문만 입력해주세요." }, { status: 400 });
   }
 
-  if (!password || password.length < 6 || password.length > 72) {
-    return NextResponse.json({ error: "PW는 6~72자로 입력해주세요." }, { status: 400 });
+  if (!password || password.length < PASSWORD_MIN_LENGTH || password.length > 72) {
+    return NextResponse.json({ error: "PW는 6자 이상으로 입력해주세요." }, { status: 400 });
   }
 
-  if (!name || name.length > 50) {
+  if (name && name.length > 50) {
     return NextResponse.json({ error: "본명은 1~50자로 입력해주세요." }, { status: 400 });
   }
 
@@ -220,21 +239,21 @@ export async function POST(request: NextRequest) {
   }
 
   const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
-    email: `${loginId}${AUTH_EMAIL_DOMAIN}`,
+    email,
     password,
     email_confirm: true,
   });
 
   if (authError || !authData.user) {
     return NextResponse.json(
-      { error: authError?.message ?? "강사 계정을 생성하지 못했습니다." },
+      { error: formatAuthError(authError?.message, "강사 계정을 생성하지 못했습니다.") },
       { status: 500 }
     );
   }
 
   const { error: profileError } = await supabaseAdmin.from("admin_profiles").insert({
     login_id: loginId,
-    manager_name: name,
+    manager_name: name || loginId,
     auth_user_id: authData.user.id,
     role: "staff",
     department_id: departmentId,
@@ -261,14 +280,20 @@ export async function PATCH(request: NextRequest) {
     loginId?: string;
     password?: string;
     retire?: boolean;
+    reactivate?: boolean;
   };
   const teacherId = body.teacherId?.trim();
   const departmentId =
     admin.profile.role === "master"
-      ? body.departmentId?.trim() ?? admin.profile.department_id
+      ? body.departmentId?.trim()
       : admin.profile.department_id;
+  if (!departmentId) {
+    return NextResponse.json({ error: "가맹점을 선택해주세요." }, { status: 400 });
+  }
+
   const loginId = body.loginId?.trim().toLowerCase();
   const password = body.password?.trim();
+  const email = loginId ? `${loginId}${AUTH_EMAIL_DOMAIN}` : "";
 
   if (!teacherId) {
     return NextResponse.json({ error: "강사를 선택해주세요." }, { status: 400 });
@@ -299,12 +324,25 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
-  if (!loginId || loginId.length > 50 || !/^[a-z0-9._-]+$/.test(loginId)) {
-    return NextResponse.json({ error: "강사 ID를 확인해주세요." }, { status: 400 });
+  if (body.reactivate) {
+    const { error } = await supabaseAdmin
+      .from("admin_profiles")
+      .update({ is_active: true, updated_at: new Date().toISOString() })
+      .eq("id", teacherId);
+
+    if (error) {
+      return NextResponse.json({ error: "강사를 다시 활성화하지 못했습니다." }, { status: 500 });
+    }
+
+    return NextResponse.json({ ok: true });
   }
 
-  if (!password || password.length < 6 || password.length > 72) {
-    return NextResponse.json({ error: "강사 PW는 6~72자로 입력해주세요." }, { status: 400 });
+  if (!loginId || loginId.length > 50 || !LOGIN_ID_PATTERN.test(loginId)) {
+    return NextResponse.json({ error: "강사 ID는 영문만 입력해주세요." }, { status: 400 });
+  }
+
+  if (!password || password.length < PASSWORD_MIN_LENGTH || password.length > 72) {
+    return NextResponse.json({ error: "강사 PW는 6자 이상으로 입력해주세요." }, { status: 400 });
   }
 
   if (loginId !== teacher.login_id) {
@@ -320,13 +358,13 @@ export async function PATCH(request: NextRequest) {
   }
 
   const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(teacher.auth_user_id, {
-    email: `${loginId}${AUTH_EMAIL_DOMAIN}`,
+    email,
     password,
   });
 
   if (authError) {
     return NextResponse.json(
-      { error: authError.message || "강사 계정을 수정하지 못했습니다." },
+      { error: formatAuthError(authError.message, "강사 계정을 수정하지 못했습니다.") },
       { status: 500 }
     );
   }

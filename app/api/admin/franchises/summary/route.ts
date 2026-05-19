@@ -6,7 +6,7 @@ type AdminProfile = {
   id: string;
   manager_name: string;
   role: string;
-  department_id: string;
+  department_id: string | null;
   is_active: boolean;
 };
 

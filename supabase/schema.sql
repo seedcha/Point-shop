@@ -22,17 +22,8 @@ create table admin_profiles (
     auth_user_id uuid not null unique references auth.users(id) on delete cascade,
     role varchar(20) not null default 'staff'
         check (role in ('master', 'manager','staff')), -- 관리자 역할 (마스터 또는 매니저)
-    department_id uuid not null references departments(id) on delete restrict, -- 관리자 가맹점
+    department_id uuid references departments(id) on delete restrict, -- 관리자 가맹점 (master는 null)
     is_active boolean not null default true, -- 관리자 활성 여부
-    created_at timestamptz not null default now(), -- 생성 시간
-    updated_at timestamptz not null default now() -- 업데이트 시간
-);
-
--- 관리자용 PIN 설정
-create table admin_settings (
-    setting_key varchar(50) primary key, -- 설정 키
-    value text not null, -- 설정 값(PIN은 bcrypt 해시로 저장)
-    updated_by uuid references admin_profiles(id), -- 설정 변경자
     created_at timestamptz not null default now(), -- 생성 시간
     updated_at timestamptz not null default now() -- 업데이트 시간
 );
@@ -194,7 +185,7 @@ insert into departments (name) values
 on conflict (name) do nothing;
 
 insert into admin_profiles (manager_name, login_id, auth_user_id, role, department_id) values
-('Kyle', 'kyle', '7f372d74-38b9-4070-856a-2901a8ce4b77', 'master', (select id from departments where name = '판교'))
+('Kyle', 'kyle0108', 'd5ad371c-0b63-46b1-90db-fbd774d37123', 'master', null)
 on conflict (auth_user_id) do nothing;
 
 commit;
