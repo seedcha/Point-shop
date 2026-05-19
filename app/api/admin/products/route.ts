@@ -153,3 +153,89 @@ export async function PATCH(request: NextRequest) {
 
   return NextResponse.json({ product: data });
 }
+
+export async function PUT(request: NextRequest) {
+  const admin = await getAdminProfile(request);
+
+  if ("error" in admin) {
+    return NextResponse.json({ error: admin.error }, { status: admin.status });
+  }
+
+  const body = (await request.json()) as {
+    id?: string;
+    departmentId?: string;
+    isActive?: boolean;
+  };
+  const productId = body.id?.trim();
+  const departmentId =
+    admin.profile.role === "master" ? body.departmentId?.trim() : admin.profile.department_id;
+
+  if (!productId) {
+    return NextResponse.json({ error: "변경할 상품을 선택해주세요." }, { status: 400 });
+  }
+
+  if (!departmentId) {
+    return NextResponse.json({ error: "가맹점을 먼저 선택해주세요." }, { status: 400 });
+  }
+
+  if (typeof body.isActive !== "boolean") {
+    return NextResponse.json({ error: "상품 상태를 확인해주세요." }, { status: 400 });
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from("products")
+    .update({ is_active: body.isActive, updated_at: new Date().toISOString() })
+    .eq("id", productId)
+    .eq("department_id", departmentId)
+    .select("id, department_id, name, category, price_dp, stock, is_active, emoji, image_url")
+    .maybeSingle();
+
+  if (error) {
+    return NextResponse.json({ error: "상품 상태를 변경하지 못했습니다." }, { status: 500 });
+  }
+
+  if (!data) {
+    return NextResponse.json({ error: "변경할 상품을 찾을 수 없습니다." }, { status: 404 });
+  }
+
+  return NextResponse.json({ product: data });
+}
+
+export async function DELETE(request: NextRequest) {
+  const admin = await getAdminProfile(request);
+
+  if ("error" in admin) {
+    return NextResponse.json({ error: admin.error }, { status: admin.status });
+  }
+
+  const body = (await request.json()) as { id?: string; departmentId?: string };
+  const productId = body.id?.trim();
+  const departmentId =
+    admin.profile.role === "master" ? body.departmentId?.trim() : admin.profile.department_id;
+
+  if (!productId) {
+    return NextResponse.json({ error: "삭제할 상품을 선택해주세요." }, { status: 400 });
+  }
+
+  if (!departmentId) {
+    return NextResponse.json({ error: "가맹점을 먼저 선택해주세요." }, { status: 400 });
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from("products")
+    .delete()
+    .eq("id", productId)
+    .eq("department_id", departmentId)
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    return NextResponse.json({ error: "상품을 삭제하지 못했습니다." }, { status: 500 });
+  }
+
+  if (!data) {
+    return NextResponse.json({ error: "삭제할 상품을 찾을 수 없습니다." }, { status: 404 });
+  }
+
+  return NextResponse.json({ ok: true });
+}

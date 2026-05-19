@@ -211,6 +211,7 @@ function DashboardContent() {
     }
 
     await refreshStudentData();
+    setMessage("구매 신청이 전송되었습니다.");
     setSelectedProduct(null);
     setIsPurchasing(false);
   };
@@ -349,8 +350,13 @@ function DashboardContent() {
                         {purchase.product_name}
                         {purchase.quantity > 1 ? ` ${purchase.quantity}개` : ""}
                       </span>
-                      <span className="text-right text-lg font-black text-red-500">
-                        -{purchase.dp_spent.toLocaleString()} DP
+                      <span
+                        className={`text-right text-lg font-black ${
+                          purchase.status === "completed" ? "text-red-500" : "text-blue-600"
+                        }`}
+                      >
+                        {purchase.status === "completed" ? "-" : "신청 "}
+                        {purchase.dp_spent.toLocaleString()} DP
                       </span>
                     </div>
                   ))}
