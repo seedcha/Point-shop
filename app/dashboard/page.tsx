@@ -88,6 +88,11 @@ function DashboardContent() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [isPurchasing, setIsPurchasing] = useState(false);
   const [message, setMessage] = useState("");
+  const [purchaseResultModal, setPurchaseResultModal] = useState<{
+    title: string;
+    message: string;
+    tone: "success" | "error";
+  } | null>(null);
   const statusMessage = studentId ? message : "학생 로그인 정보가 없습니다.";
   const filteredProducts =
     activeShopCategory === "전체"
@@ -193,6 +198,15 @@ function DashboardContent() {
       return;
     }
 
+    if ((student?.points ?? 0) < selectedProduct.price_dp) {
+      setPurchaseResultModal({
+        title: "포인트 부족",
+        message: "현재 보유 포인트로는 이 상품을 구매할 수 없습니다.",
+        tone: "error",
+      });
+      return;
+    }
+
     setIsPurchasing(true);
 
     const response = await fetch("/api/student/purchases", {
@@ -206,12 +220,22 @@ function DashboardContent() {
     if (!response.ok) {
       const payload = (await response.json().catch(() => null)) as { error?: string } | null;
       setMessage(payload?.error ?? "상품을 구매하지 못했습니다.");
+      setPurchaseResultModal({
+        title: payload?.error === "포인트가 부족합니다." ? "포인트 부족" : "구매 신청 실패",
+        message: payload?.error ?? "상품 구매 신청을 보내지 못했습니다.",
+        tone: "error",
+      });
       setIsPurchasing(false);
       return;
     }
 
     await refreshStudentData();
     setMessage("구매 신청이 전송되었습니다.");
+    setPurchaseResultModal({
+      title: "상품 구매 신청 완료",
+      message: "매니저에게 구매 신청을 보냈습니다.",
+      tone: "success",
+    });
     setSelectedProduct(null);
     setIsPurchasing(false);
   };
@@ -456,6 +480,27 @@ function DashboardContent() {
                 닫기
               </button>
             </div>
+          </section>
+        </div>
+      )}
+
+      {purchaseResultModal && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/40 p-6">
+          <section className="w-full max-w-sm rounded-3xl bg-white p-6 text-center shadow-2xl">
+            <h3
+              className={`text-2xl font-black ${
+                purchaseResultModal.tone === "success" ? "text-blue-600" : "text-red-500"
+              }`}
+            >
+              {purchaseResultModal.title}
+            </h3>
+            <p className="mt-3 text-sm font-bold text-slate-500">{purchaseResultModal.message}</p>
+            <button
+              onClick={() => setPurchaseResultModal(null)}
+              className="mt-6 w-full rounded-2xl bg-slate-900 py-3 font-black text-white transition hover:bg-slate-800"
+            >
+              확인
+            </button>
           </section>
         </div>
       )}

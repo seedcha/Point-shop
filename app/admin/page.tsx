@@ -187,14 +187,15 @@ const GRADE_OPTIONS = [
 const KOREA_TIME_ZONE = "Asia/Seoul";
 
 const ROLE_LABELS: Record<AdminRole, string> = {
-  master: "마스터",
-  manager: "랩장",
-  staff: "강사",
+  master: "\uCD1D \uAD00\uB9AC\uC790",
+  manager: "\uB7A9\uC7A5",
+  staff: "\uAC15\uC0AC",
 };
 
 const FRANCHISE_MEMBER_ROLE_LABELS: Record<string, string> = {
-  manager: "랩장",
-  staff: "강사",
+  master: "\uB7A9\uC7A5",
+  manager: "\uB7A9\uC7A5",
+  staff: "\uAC15\uC0AC",
 };
 
 function getKoreaYear(date: Date) {
@@ -285,6 +286,7 @@ export default function AdminPage() {
   const [productPrice, setProductPrice] = useState("");
   const [productStock, setProductStock] = useState("");
   const [isSavingProduct, setIsSavingProduct] = useState(false);
+  const [isUploadingProductImage, setIsUploadingProductImage] = useState(false);
   const [productStatusTab, setProductStatusTab] = useState<"active" | "inactive">("active");
   const [updatingProductStatusId, setUpdatingProductStatusId] = useState<string | null>(null);
   const [deletingProductId, setDeletingProductId] = useState<string | null>(null);
@@ -947,12 +949,12 @@ export default function AdminPage() {
     }
 
     if (!LOGIN_ID_PATTERN.test(managerLoginId)) {
-      setDataMessage("manager ID는 영문만 입력해주세요.");
+      setDataMessage("랩장 ID는 영문만 입력해주세요.");
       return;
     }
 
     if (managerPassword.length < PASSWORD_MIN_LENGTH) {
-      setDataMessage("manager PW는 6자 이상이어야 합니다.");
+      setDataMessage("랩장 PW는 6자 이상이어야 합니다.");
       return;
     }
 
@@ -1075,20 +1077,40 @@ export default function AdminPage() {
     setProductStock("");
   };
 
-  const handleProductImageChange = (event: ChangeEvent<HTMLInputElement>) => {
+  const handleProductImageChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
 
     if (!file) {
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") {
-        setProductImageUrl(reader.result);
-      }
-    };
-    reader.readAsDataURL(file);
+    setIsUploadingProductImage(true);
+    setDataMessage("");
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const response = await fetch("/api/admin/product-images", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${sessionData.session?.access_token ?? ""}`,
+      },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      setDataMessage(payload?.error ?? "상품 이미지를 업로드하지 못했습니다.");
+      setIsUploadingProductImage(false);
+      event.target.value = "";
+      return;
+    }
+
+    const payload = (await response.json()) as { imageUrl: string };
+    setProductImageUrl(payload.imageUrl);
+    setIsUploadingProductImage(false);
+    event.target.value = "";
   };
 
   const handleSaveProduct = async (event: FormEvent<HTMLFormElement>) => {
@@ -1552,7 +1574,7 @@ export default function AdminPage() {
     const target = getCredentialTarget();
 
     if (!target) {
-      setDataMessage("확인할 manager 계정이 없습니다.");
+      setDataMessage("확인할 랩장 계정이 없습니다.");
       return;
     }
 
@@ -1587,17 +1609,17 @@ export default function AdminPage() {
     const nextPassword = credentialPassword.trim();
 
     if (!target) {
-      setDataMessage("변경할 manager 계정이 없습니다.");
+      setDataMessage("변경할 랩장 계정이 없습니다.");
       return;
     }
 
     if (!LOGIN_ID_PATTERN.test(nextLoginId)) {
-      setDataMessage("manager ID는 영문만 입력해주세요.");
+      setDataMessage("랩장 ID는 영문만 입력해주세요.");
       return;
     }
 
     if (nextPassword.length < PASSWORD_MIN_LENGTH) {
-      setDataMessage("manager PW는 6자 이상이어야 합니다.");
+      setDataMessage("랩장 PW는 6자 이상이어야 합니다.");
       return;
     }
 
@@ -1620,7 +1642,7 @@ export default function AdminPage() {
 
     if (!response.ok) {
       const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-      setDataMessage(payload?.error ?? "manager 계정을 변경하지 못했습니다.");
+      setDataMessage(payload?.error ?? "랩장 계정을 변경하지 못했습니다.");
       setIsSavingCredentials(false);
       return;
     }
@@ -2051,7 +2073,7 @@ export default function AdminPage() {
             </button>
             <div className="rounded-2xl bg-slate-50 p-4">
               <label className="block">
-                <span className="text-xs font-black text-slate-500">master 비밀번호 찾기</span>
+                <span className="text-xs font-black text-slate-500">총 관리자 비밀번호 찾기</span>
                 <input
                   type="email"
                   value={resetEmail}
@@ -2090,7 +2112,7 @@ export default function AdminPage() {
               <h1 className="mt-2 text-2xl font-black">관리 콘솔</h1>
             </div>
             <Link href="/" className="text-sm font-bold text-slate-500 hover:text-blue-600">
-              학생 화면
+              {ROLE_LABELS[session.role]}
             </Link>
           </div>
 
@@ -2276,6 +2298,7 @@ export default function AdminPage() {
                 productPrice={productPrice}
                 productStock={productStock}
                 isSavingProduct={isSavingProduct}
+                isUploadingProductImage={isUploadingProductImage}
                 updatingProductStatusId={updatingProductStatusId}
                 deletingProductId={deletingProductId}
                 onProductStatusTabChange={setProductStatusTab}
@@ -3525,6 +3548,7 @@ function ShopManagementView({
   productPrice,
   productStock,
   isSavingProduct,
+  isUploadingProductImage,
   updatingProductStatusId,
   deletingProductId,
   onProductStatusTabChange,
@@ -3552,6 +3576,7 @@ function ShopManagementView({
   productPrice: string;
   productStock: string;
   isSavingProduct: boolean;
+  isUploadingProductImage: boolean;
   updatingProductStatusId: string | null;
   deletingProductId: string | null;
   onProductStatusTabChange: (tab: "active" | "inactive") => void;
@@ -3722,7 +3747,9 @@ function ShopManagementView({
                     : "상품 선물 이미지"}
                 </span>
                 <label className="mt-2 flex h-40 cursor-pointer items-center justify-center overflow-hidden rounded-xl border border-dashed border-slate-300 bg-slate-50 text-sm font-black text-slate-500 hover:bg-slate-100">
-                  {productImageUrl ? (
+                  {isUploadingProductImage ? (
+                    "업로드 중"
+                  ) : productImageUrl ? (
                     <div
                       className="h-full w-full bg-cover bg-center"
                       style={{ backgroundImage: `url(${productImageUrl})` }}
@@ -3734,6 +3761,7 @@ function ShopManagementView({
                     type="file"
                     accept="image/*"
                     className="sr-only"
+                    disabled={isUploadingProductImage}
                     onChange={onProductImageChange}
                   />
                 </label>
@@ -4160,7 +4188,7 @@ function DepartmentManagementView({
           <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <p className="text-sm font-black text-blue-600">manager 계정</p>
+                <p className="text-sm font-black text-blue-600">랩장 계정</p>
                 <h3 className="mt-1 text-2xl font-black">{credentialTarget.name}</h3>
               </div>
             </div>
@@ -4249,7 +4277,7 @@ function DepartmentManagementView({
               />
             </label>
             <label className="mt-4 block">
-              <span className="text-sm font-bold text-slate-600">manager ID</span>
+              <span className="text-sm font-bold text-slate-600">랩장 ID</span>
               <input
                 type="text"
                 required
@@ -4262,7 +4290,7 @@ function DepartmentManagementView({
               />
             </label>
             <label className="mt-4 block">
-              <span className="text-sm font-bold text-slate-600">manager PW</span>
+              <span className="text-sm font-bold text-slate-600">랩장 PW</span>
               <input
                 type="text"
                 required

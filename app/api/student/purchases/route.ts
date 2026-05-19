@@ -35,22 +35,25 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "상품 재고가 없습니다." }, { status: 400 });
   }
 
-  const { data: purchase, error: purchaseError } = await supabaseAdmin
-    .from("purchases")
+  if (student.points < product.price_dp) {
+    return NextResponse.json({ error: "포인트가 부족합니다." }, { status: 400 });
+  }
+
+  const { data: requestRow, error: requestError } = await supabaseAdmin
+    .from("purchase_requests")
     .insert({
+      department_id: student.department_id,
       student_id: student.id,
       product_id: product.id,
-      product_name: product.name,
       quantity: 1,
-      dp_spent: product.price_dp,
       status: "pending",
     })
     .select("id")
     .single();
 
-  if (purchaseError || !purchase) {
+  if (requestError || !requestRow) {
     return NextResponse.json({ error: "구매 신청을 저장하지 못했습니다." }, { status: 500 });
   }
 
-  return NextResponse.json({ purchaseId: purchase.id, points: student.points });
+  return NextResponse.json({ requestId: requestRow.id, points: student.points });
 }
