@@ -1,13 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, FormEvent, Fragment, useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 
 import { supabase } from "@/lib/supabase/client";
 
 type AdminRole = "master" | "manager" | "staff";
-type AdminView = "students" | "teachers" | "shop" | "departments" | "announcements";
+type AdminView =
+  | "students"
+  | "teachers"
+  | "shop"
+  | "purchaseRequests"
+  | "departments"
+  | "announcements";
 
 type AdminProfileRow = {
   id: string;
@@ -58,6 +64,20 @@ type Product = {
   is_active: boolean;
   emoji: string | null;
   image_url: string | null;
+};
+
+type PurchaseRequest = {
+  id: string;
+  productId: string;
+  productName: string;
+  productEmoji: string | null;
+  productImageUrl: string | null;
+  productPrice: number;
+  productStock: number;
+  studentId: string;
+  studentName: string;
+  studentPoints: number;
+  createdAt: string;
 };
 
 type FranchiseSummary = {
@@ -167,14 +187,15 @@ const GRADE_OPTIONS = [
 const KOREA_TIME_ZONE = "Asia/Seoul";
 
 const ROLE_LABELS: Record<AdminRole, string> = {
-  master: "마스터",
-  manager: "랩장",
-  staff: "강사",
+  master: "\uCD1D \uAD00\uB9AC\uC790",
+  manager: "\uB7A9\uC7A5",
+  staff: "\uAC15\uC0AC",
 };
 
 const FRANCHISE_MEMBER_ROLE_LABELS: Record<string, string> = {
-  manager: "랩장",
-  staff: "강사",
+  master: "\uB7A9\uC7A5",
+  manager: "\uB7A9\uC7A5",
+  staff: "\uAC15\uC0AC",
 };
 
 function getKoreaYear(date: Date) {
@@ -253,6 +274,9 @@ export default function AdminPage() {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [purchaseRequests, setPurchaseRequests] = useState<PurchaseRequest[]>([]);
+  const [isLoadingPurchaseRequests, setIsLoadingPurchaseRequests] = useState(false);
+  const [processingPurchaseRequestId, setProcessingPurchaseRequestId] = useState<string | null>(null);
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
   const [productModalMode, setProductModalMode] = useState<"create" | "edit">("create");
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
@@ -262,6 +286,10 @@ export default function AdminPage() {
   const [productPrice, setProductPrice] = useState("");
   const [productStock, setProductStock] = useState("");
   const [isSavingProduct, setIsSavingProduct] = useState(false);
+  const [isUploadingProductImage, setIsUploadingProductImage] = useState(false);
+  const [productStatusTab, setProductStatusTab] = useState<"active" | "inactive">("active");
+  const [updatingProductStatusId, setUpdatingProductStatusId] = useState<string | null>(null);
+  const [deletingProductId, setDeletingProductId] = useState<string | null>(null);
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [dataMessage, setDataMessage] = useState("");
   const [toastMessage, setToastMessage] = useState("");
@@ -364,6 +392,7 @@ export default function AdminPage() {
         { id: "teachers" as const, label: "강사 관리", allowed: canManageTeachers },
         { id: "shop" as const, label: "상점 관리", allowed: canUseShop },
         { id: "announcements" as const, label: "공지 관리", allowed: canMutateFranchises },
+        { id: "purchaseRequests" as const, label: "구매 신청 관리", allowed: canUseShop },
       ].filter((item) => item.allowed),
     [canManageFranchises, canManageTeachers, canMutateFranchises, canUseShop, hasSelectedFranchise, session?.role]
   );
@@ -382,6 +411,9 @@ export default function AdminPage() {
 
     return products;
   }, [products, selectedFranchiseId, session?.role]);
+  const scopedPurchaseRequests = useMemo(() => {
+    return purchaseRequests;
+  }, [purchaseRequests]);
   const checkedStudents = scopedStudents.filter((student) => checkedStudentIds.has(student.id));
   const selectedStudent = checkedStudents.length === 1 ? checkedStudents[0] : null;
   const displayedStudents = useMemo(() => {
@@ -565,6 +597,40 @@ export default function AdminPage() {
     const payload = (await response.json()) as { announcements?: Announcement[] };
     setAnnouncements(payload.announcements ?? []);
     setIsLoadingAnnouncements(false);
+  };
+
+  const loadPurchaseRequests = async () => {
+    if (!session || !["master", "manager"].includes(session.role)) {
+      return;
+    }
+
+    const departmentId = session.role === "master" ? selectedFranchiseId : session.departmentId;
+
+    if (!departmentId) {
+      setDataMessage("가맹점을 먼저 선택해주세요.");
+      return;
+    }
+
+    setIsLoadingPurchaseRequests(true);
+    setDataMessage("");
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const response = await fetch(`/api/admin/purchase-requests?departmentId=${departmentId}`, {
+      headers: {
+        Authorization: `Bearer ${sessionData.session?.access_token ?? ""}`,
+      },
+    });
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      setDataMessage(payload?.error ?? "구매 신청 목록을 불러오지 못했습니다.");
+      setIsLoadingPurchaseRequests(false);
+      return;
+    }
+
+    const payload = (await response.json()) as { purchaseRequests?: PurchaseRequest[] };
+    setPurchaseRequests(payload.purchaseRequests ?? []);
+    setIsLoadingPurchaseRequests(false);
   };
 
   const handleLogin = async (event: FormEvent<HTMLFormElement>) => {
@@ -883,12 +949,12 @@ export default function AdminPage() {
     }
 
     if (!LOGIN_ID_PATTERN.test(managerLoginId)) {
-      setDataMessage("manager ID는 영문만 입력해주세요.");
+      setDataMessage("랩장 ID는 영문만 입력해주세요.");
       return;
     }
 
     if (managerPassword.length < PASSWORD_MIN_LENGTH) {
-      setDataMessage("manager PW는 6자 이상이어야 합니다.");
+      setDataMessage("랩장 PW는 6자 이상이어야 합니다.");
       return;
     }
 
@@ -1011,20 +1077,40 @@ export default function AdminPage() {
     setProductStock("");
   };
 
-  const handleProductImageChange = (event: ChangeEvent<HTMLInputElement>) => {
+  const handleProductImageChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
 
     if (!file) {
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") {
-        setProductImageUrl(reader.result);
-      }
-    };
-    reader.readAsDataURL(file);
+    setIsUploadingProductImage(true);
+    setDataMessage("");
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const response = await fetch("/api/admin/product-images", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${sessionData.session?.access_token ?? ""}`,
+      },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      setDataMessage(payload?.error ?? "상품 이미지를 업로드하지 못했습니다.");
+      setIsUploadingProductImage(false);
+      event.target.value = "";
+      return;
+    }
+
+    const payload = (await response.json()) as { imageUrl: string };
+    setProductImageUrl(payload.imageUrl);
+    setIsUploadingProductImage(false);
+    event.target.value = "";
   };
 
   const handleSaveProduct = async (event: FormEvent<HTMLFormElement>) => {
@@ -1099,6 +1185,183 @@ export default function AdminPage() {
     setDataMessage(productModalMode === "create" ? "상품을 추가했습니다." : "상품을 수정했습니다.");
     setIsSavingProduct(false);
     closeProductModal();
+  };
+
+  const handleToggleProductStatus = async (product: Product) => {
+    if (!session || !["master", "manager"].includes(session.role)) {
+      return;
+    }
+
+    const productDepartmentId =
+      session.role === "master" ? selectedFranchiseId : session.departmentId;
+
+    if (!productDepartmentId) {
+      setDataMessage("가맹점을 먼저 선택해주세요.");
+      return;
+    }
+
+    const nextIsActive = !product.is_active;
+    const actionLabel = nextIsActive ? "활성화" : "비활성화";
+
+    if (!window.confirm(`${product.name} 상품을 ${actionLabel}하시겠습니까?`)) {
+      return;
+    }
+
+    setUpdatingProductStatusId(product.id);
+    setDataMessage("");
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const response = await fetch("/api/admin/products", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${sessionData.session?.access_token ?? ""}`,
+      },
+      body: JSON.stringify({
+        id: product.id,
+        departmentId: productDepartmentId,
+        isActive: nextIsActive,
+      }),
+    });
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      setDataMessage(payload?.error ?? `상품을 ${actionLabel}하지 못했습니다.`);
+      setUpdatingProductStatusId(null);
+      return;
+    }
+
+    const payload = (await response.json()) as { product: Product };
+    setProducts((currentProducts) =>
+      currentProducts.map((currentProduct) =>
+        currentProduct.id === payload.product.id ? payload.product : currentProduct
+      )
+    );
+    setDataMessage(`상품을 ${actionLabel}했습니다.`);
+    setUpdatingProductStatusId(null);
+  };
+
+  const handleDeleteProduct = async (product: Product) => {
+    if (!session || !["master", "manager"].includes(session.role)) {
+      return;
+    }
+
+    const productDepartmentId =
+      session.role === "master" ? selectedFranchiseId : session.departmentId;
+
+    if (!productDepartmentId) {
+      setDataMessage("가맹점을 먼저 선택해주세요.");
+      return;
+    }
+
+    if (!window.confirm(`${product.name} 상품을 완전히 삭제하시겠습니까?`)) {
+      return;
+    }
+
+    setDeletingProductId(product.id);
+    setDataMessage("");
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const response = await fetch("/api/admin/products", {
+      method: "DELETE",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${sessionData.session?.access_token ?? ""}`,
+      },
+      body: JSON.stringify({
+        id: product.id,
+        departmentId: productDepartmentId,
+      }),
+    });
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      setDataMessage(payload?.error ?? "상품을 삭제하지 못했습니다.");
+      setDeletingProductId(null);
+      return;
+    }
+
+    setProducts((currentProducts) =>
+      currentProducts.filter((currentProduct) => currentProduct.id !== product.id)
+    );
+    setDataMessage("상품을 삭제했습니다.");
+    setDeletingProductId(null);
+  };
+
+  const handleProcessPurchaseRequest = async (
+    request: PurchaseRequest,
+    action: "approve" | "reject"
+  ) => {
+    if (!session || !["master", "manager"].includes(session.role)) {
+      return;
+    }
+
+    const departmentId = session.role === "master" ? selectedFranchiseId : session.departmentId;
+
+    if (!departmentId) {
+      setDataMessage("가맹점을 먼저 선택해주세요.");
+      return;
+    }
+
+    const actionLabel = action === "approve" ? "허락" : "거절";
+
+    if (!window.confirm(`${request.studentName} 학생의 ${request.productName} 신청을 ${actionLabel}하시겠습니까?`)) {
+      return;
+    }
+
+    setProcessingPurchaseRequestId(request.id);
+    setDataMessage("");
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const response = await fetch("/api/admin/purchase-requests", {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${sessionData.session?.access_token ?? ""}`,
+      },
+      body: JSON.stringify({
+        purchaseId: request.id,
+        departmentId,
+        action,
+      }),
+    });
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      setDataMessage(payload?.error ?? `구매 신청을 ${actionLabel}하지 못했습니다.`);
+      setProcessingPurchaseRequestId(null);
+      return;
+    }
+
+    const payload = (await response.json()) as {
+      product?: Product;
+      student?: { id: string; points: number };
+    };
+
+    setPurchaseRequests((currentRequests) =>
+      currentRequests.filter((currentRequest) => currentRequest.id !== request.id)
+    );
+
+    if (payload.product) {
+      setProducts((currentProducts) =>
+        currentProducts.map((product) =>
+          product.id === payload.product?.id ? payload.product : product
+        )
+      );
+    }
+
+    if (payload.student) {
+      setStudents((currentStudents) =>
+        currentStudents.map((student) =>
+          student.id === payload.student?.id
+            ? { ...student, points: payload.student.points }
+            : student
+        )
+      );
+    }
+
+    setDataMessage(`구매 신청을 ${actionLabel}했습니다.`);
+    setProcessingPurchaseRequestId(null);
   };
 
   const loadTeacherData = async () => {
@@ -1311,7 +1574,7 @@ export default function AdminPage() {
     const target = getCredentialTarget();
 
     if (!target) {
-      setDataMessage("확인할 manager 계정이 없습니다.");
+      setDataMessage("확인할 랩장 계정이 없습니다.");
       return;
     }
 
@@ -1346,17 +1609,17 @@ export default function AdminPage() {
     const nextPassword = credentialPassword.trim();
 
     if (!target) {
-      setDataMessage("변경할 manager 계정이 없습니다.");
+      setDataMessage("변경할 랩장 계정이 없습니다.");
       return;
     }
 
     if (!LOGIN_ID_PATTERN.test(nextLoginId)) {
-      setDataMessage("manager ID는 영문만 입력해주세요.");
+      setDataMessage("랩장 ID는 영문만 입력해주세요.");
       return;
     }
 
     if (nextPassword.length < PASSWORD_MIN_LENGTH) {
-      setDataMessage("manager PW는 6자 이상이어야 합니다.");
+      setDataMessage("랩장 PW는 6자 이상이어야 합니다.");
       return;
     }
 
@@ -1379,7 +1642,7 @@ export default function AdminPage() {
 
     if (!response.ok) {
       const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-      setDataMessage(payload?.error ?? "manager 계정을 변경하지 못했습니다.");
+      setDataMessage(payload?.error ?? "랩장 계정을 변경하지 못했습니다.");
       setIsSavingCredentials(false);
       return;
     }
@@ -1810,7 +2073,7 @@ export default function AdminPage() {
             </button>
             <div className="rounded-2xl bg-slate-50 p-4">
               <label className="block">
-                <span className="text-xs font-black text-slate-500">master 비밀번호 찾기</span>
+                <span className="text-xs font-black text-slate-500">총 관리자 비밀번호 찾기</span>
                 <input
                   type="email"
                   value={resetEmail}
@@ -1849,7 +2112,7 @@ export default function AdminPage() {
               <h1 className="mt-2 text-2xl font-black">관리 콘솔</h1>
             </div>
             <Link href="/" className="text-sm font-bold text-slate-500 hover:text-blue-600">
-              학생 화면
+              {ROLE_LABELS[session.role]}
             </Link>
           </div>
 
@@ -1862,7 +2125,7 @@ export default function AdminPage() {
 
           <nav className="mt-6 space-y-2">
             {navItems.map((item) => {
-              const isFranchiseChild = ["students", "teachers", "shop"].includes(item.id);
+              const isFranchiseChild = ["students", "teachers", "shop", "purchaseRequests"].includes(item.id);
               const franchiseChildLabel =
                 isFranchiseChild && selectedFranchiseId
                   ? `${item.label} (${departmentNameById.get(selectedFranchiseId) ?? "선택 가맹점"})`
@@ -1890,6 +2153,10 @@ export default function AdminPage() {
 
                   if (item.id === "teachers") {
                     await loadTeacherData();
+                  }
+
+                  if (item.id === "purchaseRequests") {
+                    await loadPurchaseRequests();
                   }
 
                   if (item.id === "announcements") {
@@ -1932,6 +2199,7 @@ export default function AdminPage() {
 	                {activeView === "shop" && "상점 관리"}
 	                {activeView === "departments" && "가맹점 관리"}
 	                {activeView === "announcements" && "공지 관리"}
+	                {activeView === "purchaseRequests" && "구매 신청 관리"}
 	              </h2>
 	            </div>
             {isLoadingData && <p className="text-sm font-bold text-slate-500">불러오는 중</p>}
@@ -2021,6 +2289,7 @@ export default function AdminPage() {
 	              products={scopedProducts}
 	              departmentNameById={departmentNameById}
 	              showDepartment={session.role === "master"}
+                productStatusTab={productStatusTab}
                 isProductModalOpen={isProductModalOpen}
                 productModalMode={productModalMode}
                 productEmoji={productEmoji}
@@ -2029,8 +2298,14 @@ export default function AdminPage() {
                 productPrice={productPrice}
                 productStock={productStock}
                 isSavingProduct={isSavingProduct}
+                isUploadingProductImage={isUploadingProductImage}
+                updatingProductStatusId={updatingProductStatusId}
+                deletingProductId={deletingProductId}
+                onProductStatusTabChange={setProductStatusTab}
                 onCreateProduct={openCreateProductModal}
                 onEditProduct={openEditProductModal}
+                onToggleProductStatus={handleToggleProductStatus}
+                onDeleteProduct={handleDeleteProduct}
                 onCloseProductModal={closeProductModal}
                 onProductEmojiChange={setProductEmoji}
                 onProductImageChange={handleProductImageChange}
@@ -2039,6 +2314,14 @@ export default function AdminPage() {
                 onProductStockChange={setProductStock}
                 onSaveProduct={handleSaveProduct}
 	            />
+	          ) : activeView === "purchaseRequests" ? (
+	            <PurchaseRequestManagementView
+                purchaseRequests={scopedPurchaseRequests}
+                isLoading={isLoadingPurchaseRequests}
+                processingPurchaseRequestId={processingPurchaseRequestId}
+                onApprove={(request) => handleProcessPurchaseRequest(request, "approve")}
+                onReject={(request) => handleProcessPurchaseRequest(request, "reject")}
+              />
 		          ) : activeView === "departments" ? (
 	            <DepartmentManagementView
 		      departments={
@@ -2647,8 +2930,8 @@ function StudentManagementView({
                 const isNoteExpanded = expandedNoteStudentId === student.id;
 
                 return (
-                  <>
-                    <tr key={student.id} className="hover:bg-slate-50">
+                  <Fragment key={student.id}>
+                    <tr className="hover:bg-slate-50">
                       {canEditStudents && (
                         <td className="px-5 py-4">
                           <input
@@ -2704,7 +2987,7 @@ function StudentManagementView({
                         </td>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
                 );
               })}
               {!students.length && (
@@ -3156,10 +3439,107 @@ function TeacherManagementView({
   );
 }
 
+function PurchaseRequestManagementView({
+  purchaseRequests,
+  isLoading,
+  processingPurchaseRequestId,
+  onApprove,
+  onReject,
+}: {
+  purchaseRequests: PurchaseRequest[];
+  isLoading: boolean;
+  processingPurchaseRequestId: string | null;
+  onApprove: (request: PurchaseRequest) => void;
+  onReject: (request: PurchaseRequest) => void;
+}) {
+  return (
+    <div className="mt-8 space-y-4">
+      <section className="overflow-hidden rounded-2xl bg-white shadow-sm">
+        <div className="border-b border-slate-100 px-5 py-4">
+          <p className="text-sm font-black text-slate-500">구매 신청 목록</p>
+          <p className="mt-1 text-xs font-bold text-slate-400">
+            {isLoading ? "불러오는 중" : `대기 중인 신청 ${purchaseRequests.length}건`}
+          </p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[1040px] text-left text-sm">
+            <thead className="bg-slate-50 text-xs font-black text-slate-500">
+              <tr>
+                <th className="px-5 py-3">상품 아이콘</th>
+                <th className="px-5 py-3">상품 이름</th>
+                <th className="px-5 py-3">상품 가격</th>
+                <th className="px-5 py-3">상품 재고</th>
+                <th className="px-5 py-3">신청 학생</th>
+                <th className="px-5 py-3">학생 현재 포인트</th>
+                <th className="px-5 py-3">처리</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {purchaseRequests.map((request) => (
+                <tr key={request.id} className="hover:bg-slate-50">
+                  <td className="px-5 py-4">
+                    <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-xl bg-slate-100 text-xl font-black">
+                      {request.productImageUrl ? (
+                        <div
+                          className="h-full w-full bg-cover bg-center"
+                          style={{ backgroundImage: `url(${request.productImageUrl})` }}
+                        />
+                      ) : (
+                        request.productEmoji ?? "상품"
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-5 py-4 font-black">{request.productName}</td>
+                  <td className="px-5 py-4 font-black text-blue-600">
+                    {request.productPrice.toLocaleString()} DP
+                  </td>
+                  <td className="px-5 py-4 font-black text-slate-700">
+                    {request.productStock.toLocaleString()}개
+                  </td>
+                  <td className="px-5 py-4 font-black">{request.studentName}</td>
+                  <td className="px-5 py-4 font-black text-slate-700">
+                    {request.studentPoints.toLocaleString()} DP
+                  </td>
+                  <td className="px-5 py-4">
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        onClick={() => onApprove(request)}
+                        disabled={processingPurchaseRequestId === request.id}
+                        className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-black text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                      >
+                        허락
+                      </button>
+                      <button
+                        onClick={() => onReject(request)}
+                        disabled={processingPurchaseRequestId === request.id}
+                        className="rounded-xl bg-red-50 px-4 py-2 text-xs font-black text-red-600 hover:bg-red-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+                      >
+                        거절
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {!purchaseRequests.length && (
+                <tr>
+                  <td colSpan={7} className="px-5 py-12 text-center font-bold text-slate-400">
+                    대기 중인 구매 신청이 없습니다.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function ShopManagementView({
   products,
   departmentNameById,
   showDepartment,
+  productStatusTab,
   isProductModalOpen,
   productModalMode,
   productEmoji,
@@ -3168,8 +3548,14 @@ function ShopManagementView({
   productPrice,
   productStock,
   isSavingProduct,
+  isUploadingProductImage,
+  updatingProductStatusId,
+  deletingProductId,
+  onProductStatusTabChange,
   onCreateProduct,
   onEditProduct,
+  onToggleProductStatus,
+  onDeleteProduct,
   onCloseProductModal,
   onProductEmojiChange,
   onProductImageChange,
@@ -3181,6 +3567,7 @@ function ShopManagementView({
   products: Product[];
   departmentNameById: Map<string, string>;
   showDepartment: boolean;
+  productStatusTab: "active" | "inactive";
   isProductModalOpen: boolean;
   productModalMode: "create" | "edit";
   productEmoji: string;
@@ -3189,8 +3576,14 @@ function ShopManagementView({
   productPrice: string;
   productStock: string;
   isSavingProduct: boolean;
+  isUploadingProductImage: boolean;
+  updatingProductStatusId: string | null;
+  deletingProductId: string | null;
+  onProductStatusTabChange: (tab: "active" | "inactive") => void;
   onCreateProduct: () => void;
   onEditProduct: (product: Product) => void;
+  onToggleProductStatus: (product: Product) => void;
+  onDeleteProduct: (product: Product) => void;
   onCloseProductModal: () => void;
   onProductEmojiChange: (emoji: string) => void;
   onProductImageChange: (event: ChangeEvent<HTMLInputElement>) => void;
@@ -3199,17 +3592,41 @@ function ShopManagementView({
   onProductStockChange: (stock: string) => void;
   onSaveProduct: (event: FormEvent<HTMLFormElement>) => void;
 }) {
+  const activeProducts = products.filter((product) => product.is_active);
+  const inactiveProducts = products.filter((product) => !product.is_active);
+  const displayedProducts = productStatusTab === "active" ? activeProducts : inactiveProducts;
+
   return (
     <div className="mt-8 space-y-4">
       <section className="overflow-hidden rounded-2xl bg-white shadow-sm">
         <div className="flex flex-col gap-3 border-b border-slate-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm font-black text-slate-500">상품 리스트</p>
-          <button
-            onClick={onCreateProduct}
-            className="rounded-xl bg-blue-600 px-4 py-3 text-sm font-black text-white hover:bg-blue-700"
-          >
+          <div className="flex flex-wrap gap-2">
+            <div className="grid grid-cols-2 rounded-xl bg-slate-100 p-1">
+              <button
+                onClick={() => onProductStatusTabChange("active")}
+                className={`rounded-lg px-4 py-2 text-sm font-black ${
+                  productStatusTab === "active" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500"
+                }`}
+              >
+                활성 상품 {activeProducts.length}
+              </button>
+              <button
+                onClick={() => onProductStatusTabChange("inactive")}
+                className={`rounded-lg px-4 py-2 text-sm font-black ${
+                  productStatusTab === "inactive" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500"
+                }`}
+              >
+                비활성 상품 {inactiveProducts.length}
+              </button>
+            </div>
+            <button
+              onClick={onCreateProduct}
+              className="rounded-xl bg-blue-600 px-4 py-3 text-sm font-black text-white hover:bg-blue-700"
+            >
             상품 추가
-          </button>
+            </button>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[820px] text-left text-sm">
@@ -3224,7 +3641,7 @@ function ShopManagementView({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {products.map((product) => (
+              {displayedProducts.map((product) => (
                 <tr key={product.id} className="hover:bg-slate-50">
                   <td className="px-5 py-4">
                     <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-xl bg-slate-100 text-xl font-black">
@@ -3251,16 +3668,40 @@ function ShopManagementView({
                     {product.stock.toLocaleString()}개
                   </td>
                   <td className="px-5 py-4">
-                    <button
-                      onClick={() => onEditProduct(product)}
-                      className="rounded-xl bg-slate-900 px-4 py-2 text-xs font-black text-white hover:bg-slate-800"
-                    >
-                      상품 수정
-                    </button>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        onClick={() => onEditProduct(product)}
+                        className="rounded-xl bg-slate-900 px-4 py-2 text-xs font-black text-white hover:bg-slate-800"
+                      >
+                        상품 수정
+                      </button>
+                      <button
+                        onClick={() => onToggleProductStatus(product)}
+                        disabled={updatingProductStatusId === product.id}
+                        className={`rounded-xl px-4 py-2 text-xs font-black disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 ${
+                          product.is_active
+                            ? "bg-red-50 text-red-600 hover:bg-red-100"
+                            : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                        }`}
+                      >
+                        {updatingProductStatusId === product.id
+                          ? "변경 중"
+                          : product.is_active
+                            ? "비활성화"
+                            : "활성화"}
+                      </button>
+                      <button
+                        onClick={() => onDeleteProduct(product)}
+                        disabled={deletingProductId === product.id}
+                        className="rounded-xl bg-red-50 px-4 py-2 text-xs font-black text-red-600 hover:bg-red-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+                      >
+                        {deletingProductId === product.id ? "삭제 중" : "삭제"}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
-              {!products.length && (
+              {!displayedProducts.length && (
                 <tr>
                   <td
                     colSpan={showDepartment ? 6 : 5}
@@ -3306,7 +3747,9 @@ function ShopManagementView({
                     : "상품 선물 이미지"}
                 </span>
                 <label className="mt-2 flex h-40 cursor-pointer items-center justify-center overflow-hidden rounded-xl border border-dashed border-slate-300 bg-slate-50 text-sm font-black text-slate-500 hover:bg-slate-100">
-                  {productImageUrl ? (
+                  {isUploadingProductImage ? (
+                    "업로드 중"
+                  ) : productImageUrl ? (
                     <div
                       className="h-full w-full bg-cover bg-center"
                       style={{ backgroundImage: `url(${productImageUrl})` }}
@@ -3318,6 +3761,7 @@ function ShopManagementView({
                     type="file"
                     accept="image/*"
                     className="sr-only"
+                    disabled={isUploadingProductImage}
                     onChange={onProductImageChange}
                   />
                 </label>
@@ -3744,7 +4188,7 @@ function DepartmentManagementView({
           <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <p className="text-sm font-black text-blue-600">manager 계정</p>
+                <p className="text-sm font-black text-blue-600">랩장 계정</p>
                 <h3 className="mt-1 text-2xl font-black">{credentialTarget.name}</h3>
               </div>
             </div>
@@ -3833,7 +4277,7 @@ function DepartmentManagementView({
               />
             </label>
             <label className="mt-4 block">
-              <span className="text-sm font-bold text-slate-600">manager ID</span>
+              <span className="text-sm font-bold text-slate-600">랩장 ID</span>
               <input
                 type="text"
                 required
@@ -3846,7 +4290,7 @@ function DepartmentManagementView({
               />
             </label>
             <label className="mt-4 block">
-              <span className="text-sm font-bold text-slate-600">manager PW</span>
+              <span className="text-sm font-bold text-slate-600">랩장 PW</span>
               <input
                 type="text"
                 required

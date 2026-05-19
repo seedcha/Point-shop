@@ -7,17 +7,24 @@ function digitsOnly(value: string) {
 }
 
 export async function POST(request: NextRequest) {
-  const body = (await request.json()) as { phone?: string };
+  const body = (await request.json()) as { phone?: string; departmentId?: string };
   const inputPhone = digitsOnly(body.phone ?? "");
+  const departmentId = body.departmentId?.trim();
 
   if (inputPhone.length < 8) {
     return NextResponse.json({ error: "전화번호를 확인해주세요." }, { status: 400 });
   }
 
-  const { data, error } = await supabaseAdmin
+  let query = supabaseAdmin
     .from("students")
     .select("id, name, parent_phone, grade, points")
     .eq("is_active", true);
+
+  if (departmentId) {
+    query = query.eq("department_id", departmentId);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     return NextResponse.json({ error: "학생 정보를 확인하지 못했습니다." }, { status: 500 });

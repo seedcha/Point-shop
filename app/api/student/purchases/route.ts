@@ -36,59 +36,24 @@ export async function POST(request: NextRequest) {
   }
 
   if (student.points < product.price_dp) {
-    return NextResponse.json({ error: "보유 DP가 부족합니다." }, { status: 400 });
+    return NextResponse.json({ error: "포인트가 부족합니다." }, { status: 400 });
   }
 
-  const balanceAfter = student.points - product.price_dp;
-
-  const { error: studentUpdateError } = await supabaseAdmin
-    .from("students")
-    .update({ points: balanceAfter, updated_at: new Date().toISOString() })
-    .eq("id", student.id);
-
-  if (studentUpdateError) {
-    return NextResponse.json({ error: "포인트를 차감하지 못했습니다." }, { status: 500 });
-  }
-
-  const { error: productUpdateError } = await supabaseAdmin
-    .from("products")
-    .update({ stock: product.stock - 1, updated_at: new Date().toISOString() })
-    .eq("id", product.id);
-
-  if (productUpdateError) {
-    return NextResponse.json({ error: "상품 재고를 변경하지 못했습니다." }, { status: 500 });
-  }
-
-  const { data: purchase, error: purchaseError } = await supabaseAdmin
-    .from("purchases")
+  const { data: requestRow, error: requestError } = await supabaseAdmin
+    .from("purchase_requests")
     .insert({
+      department_id: student.department_id,
       student_id: student.id,
       product_id: product.id,
-      product_name: product.name,
       quantity: 1,
-      dp_spent: product.price_dp,
-      status: "completed",
+      status: "pending",
     })
     .select("id")
     .single();
 
-  if (purchaseError || !purchase) {
-    return NextResponse.json({ error: "구매 내역을 저장하지 못했습니다." }, { status: 500 });
+  if (requestError || !requestRow) {
+    return NextResponse.json({ error: "구매 신청을 저장하지 못했습니다." }, { status: 500 });
   }
 
-  const { error: transactionError } = await supabaseAdmin.from("point_transactions").insert({
-    department_id: student.department_id,
-    student_id: student.id,
-    purchase_id: purchase.id,
-    amount: -product.price_dp,
-    balance_after: balanceAfter,
-    transaction_type: "purchase",
-    reason: `${product.name} 구매`,
-  });
-
-  if (transactionError) {
-    return NextResponse.json({ error: "포인트 내역을 저장하지 못했습니다." }, { status: 500 });
-  }
-
-  return NextResponse.json({ points: balanceAfter });
+  return NextResponse.json({ requestId: requestRow.id, points: student.points });
 }

@@ -12,14 +12,105 @@ type LoginStudent = {
   points: number;
 };
 
+type DepartmentOption = {
+  id: string;
+  name: string;
+};
+
+type RankingRow = {
+  id: string;
+  name: string;
+  grade: string;
+  points: number;
+};
+
+type LobbyRankings = {
+  departments: DepartmentOption[];
+  selectedDepartmentId: string | null;
+  rankings: {
+    honor: RankingRow[];
+    assets: RankingRow[];
+  };
+};
+
+const rankingPanelMeta = [
+  {
+    id: "honor",
+    title: "명예의 전당 누적 포인트",
+    borderClass: "border-blue-500",
+    highlightClass: "bg-blue-50 text-blue-700",
+  },
+  {
+    id: "assets",
+    title: "현재 보유 자산 랭킹",
+    borderClass: "border-emerald-500",
+    highlightClass: "bg-emerald-50 text-emerald-700",
+  },
+] as const;
+
 export default function LobbyPage() {
   const [phone, setPhone] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [studentChoices, setStudentChoices] = useState<LoginStudent[]>([]);
   const [errorMessage, setErrorMessage] = useState("");
+  const [activeRankingIndex, setActiveRankingIndex] = useState(0);
+  const [departments, setDepartments] = useState<DepartmentOption[]>([]);
+  const [selectedDepartmentId, setSelectedDepartmentId] = useState("");
+  const [rankingRows, setRankingRows] = useState<LobbyRankings["rankings"]>({
+    honor: [],
+    assets: [],
+  });
+  const [isLoadingRankings, setIsLoadingRankings] = useState(true);
   const router = useRouter();
+  const rankingPanels = rankingPanelMeta.map((panel) => ({
+    ...panel,
+    rows: rankingRows[panel.id],
+  }));
+  const activeRanking = rankingPanels[activeRankingIndex];
 
   const formatPhone = (value: string) => value.replace(/\D/g, "").slice(0, 8);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadRankings() {
+      setIsLoadingRankings(true);
+
+      const params = new URLSearchParams();
+
+      if (selectedDepartmentId) {
+        params.set("departmentId", selectedDepartmentId);
+      }
+
+      const response = await fetch(`/api/lobby/rankings${params.size ? `?${params.toString()}` : ""}`);
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (!response.ok) {
+        setRankingRows({ honor: [], assets: [] });
+        setIsLoadingRankings(false);
+        return;
+      }
+
+      const payload = (await response.json()) as LobbyRankings;
+      setDepartments(payload.departments);
+      setRankingRows(payload.rankings);
+
+      if (payload.selectedDepartmentId && payload.selectedDepartmentId !== selectedDepartmentId) {
+        setSelectedDepartmentId(payload.selectedDepartmentId);
+      }
+
+      setIsLoadingRankings(false);
+    }
+
+    loadRankings();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedDepartmentId]);
 
   useEffect(() => {
     if (!errorMessage) {
@@ -32,6 +123,14 @@ export default function LobbyPage() {
 
     return () => window.clearTimeout(timeoutId);
   }, [errorMessage]);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setActiveRankingIndex((currentIndex) => (currentIndex + 1) % rankingPanelMeta.length);
+    }, 5000);
+
+    return () => window.clearInterval(intervalId);
+  }, []);
 
   const handleNumberClick = (num: number) => {
     setErrorMessage("");
@@ -64,7 +163,7 @@ export default function LobbyPage() {
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ phone }),
+      body: JSON.stringify({ phone, departmentId: selectedDepartmentId || undefined }),
     });
 
     if (!response.ok) {
@@ -89,6 +188,29 @@ export default function LobbyPage() {
 
   return (
     <main className="relative flex min-h-screen flex-row items-center justify-center gap-8 bg-slate-100 p-6">
+      <div className="absolute left-6 top-6 flex items-center gap-3 rounded-2xl bg-white px-4 py-3 shadow-sm">
+        <label htmlFor="department-select" className="text-sm font-black text-slate-500">
+          가맹점
+        </label>
+        <select
+          id="department-select"
+          value={selectedDepartmentId}
+          onChange={(event) => setSelectedDepartmentId(event.target.value)}
+          disabled={departments.length === 0}
+          className="min-w-36 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-black text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white"
+        >
+          {departments.length === 0 ? (
+            <option value="">가맹점 없음</option>
+          ) : (
+            departments.map((department) => (
+              <option key={department.id} value={department.id}>
+                {department.name}
+              </option>
+            ))
+          )}
+        </select>
+      </div>
+
       <Link
         href="/admin"
         className="absolute right-6 top-6 rounded-2xl bg-white px-5 py-3 text-sm font-black text-slate-500 shadow-sm transition hover:bg-blue-600 hover:text-white"
@@ -97,44 +219,49 @@ export default function LobbyPage() {
       </Link>
 
       <section className="flex w-1/3 max-w-sm flex-col gap-6">
-        <div className="rounded-3xl border-t-4 border-blue-500 bg-white p-5 shadow-md">
+        <div className={`rounded-3xl border-t-4 ${activeRanking.borderClass} bg-white p-5 shadow-md`}>
           <h2 className="mb-4 text-center text-xl font-bold text-gray-800">
-            명예의 전당 누적 포인트
+            {activeRanking.title}
           </h2>
           <ul className="flex flex-col gap-3">
-            <li className="flex items-center justify-between rounded-xl bg-blue-50 p-3 font-bold text-blue-700">
-              <span>1위 박개발</span>
-              <span>120,400 P</span>
-            </li>
-            <li className="flex items-center justify-between border-b border-slate-100 p-3 font-semibold text-gray-700">
-              <span>2위 이코딩</span>
-              <span>98,500 P</span>
-            </li>
-            <li className="flex items-center justify-between border-b border-slate-100 p-3 font-semibold text-gray-700">
-              <span>3위 김학생</span>
-              <span>85,200 P</span>
-            </li>
+            {isLoadingRankings ? (
+              <li className="rounded-xl bg-slate-50 p-4 text-center text-sm font-black text-slate-400">
+                랭킹 불러오는 중
+              </li>
+            ) : activeRanking.rows.length === 0 ? (
+              <li className="rounded-xl bg-slate-50 p-4 text-center text-sm font-black text-slate-400">
+                표시할 학생이 없습니다
+              </li>
+            ) : (
+              activeRanking.rows.map((row, index) => (
+                <li
+                  key={row.id}
+                  className={`flex items-center justify-between gap-4 p-3 font-bold ${
+                    index === 0
+                      ? `rounded-xl ${activeRanking.highlightClass}`
+                      : "border-b border-slate-100 text-gray-700"
+                  }`}
+                >
+                  <span className="min-w-0">
+                    <span className="mr-2">{index + 1}위</span>
+                    <span>{row.name}</span>
+                    <span className="ml-2 text-xs text-slate-400">{row.grade}</span>
+                  </span>
+                  <span className="shrink-0">{row.points.toLocaleString()} DP</span>
+                </li>
+              ))
+            )}
           </ul>
-        </div>
-
-        <div className="rounded-3xl border-t-4 border-emerald-500 bg-white p-5 shadow-md">
-          <h2 className="mb-4 text-center text-xl font-bold text-gray-800">
-            현재 보유 자산 랭킹
-          </h2>
-          <ul className="flex flex-col gap-3">
-            <li className="flex items-center justify-between rounded-xl bg-emerald-50 p-3 font-bold text-emerald-700">
-              <span>1위 최프로</span>
-              <span>45,000 P</span>
-            </li>
-            <li className="flex items-center justify-between border-b border-slate-100 p-3 font-semibold text-gray-700">
-              <span>2위 김학생</span>
-              <span>15,000 P</span>
-            </li>
-            <li className="flex items-center justify-between border-b border-slate-100 p-3 font-semibold text-gray-700">
-              <span>3위 정백엔</span>
-              <span>8,100 P</span>
-            </li>
-          </ul>
+          <div className="mt-4 flex justify-center gap-2">
+            {rankingPanels.map((panel, index) => (
+              <span
+                key={panel.id}
+                className={`h-2 w-2 rounded-full ${
+                  index === activeRankingIndex ? "bg-slate-700" : "bg-slate-300"
+                }`}
+              />
+            ))}
+          </div>
         </div>
       </section>
 
@@ -154,11 +281,25 @@ export default function LobbyPage() {
             <span className="pb-1 text-4xl font-black text-slate-400">-</span>
             <input
               type="tel"
-              value={phone}
+              value={"*".repeat(phone.length)}
               onChange={(event) => handlePhoneChange(event.target.value)}
+              onBeforeInput={(event) => {
+                const input = event.data ?? "";
+
+                if (/^\d$/.test(input)) {
+                  event.preventDefault();
+                  handleNumberClick(Number(input));
+                }
+              }}
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
                   handleSubmit();
+                  return;
+                }
+
+                if (event.key === "Backspace") {
+                  event.preventDefault();
+                  handleDelete();
                 }
               }}
               inputMode="numeric"
