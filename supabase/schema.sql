@@ -104,6 +104,22 @@ create table purchases (
     updated_at timestamptz not null default now() -- 업데이트 시간(구매 취소 등)
 );
 
+-- 구매 요청 테이블
+create table purchase_requests (
+    id uuid primary key default gen_random_uuid(), -- 구매 요청 ID
+    department_id uuid not null references departments(id) on delete cascade, -- 요청 가맹점
+    student_id uuid not null references students(id) on delete cascade, -- 학생 ID
+    product_id uuid not null references products(id) on delete restrict, -- 상품 ID
+    quantity int not null check (quantity > 0), -- 구매 수량
+    status varchar(20) not null default 'pending'
+        check (status in ('pending', 'approved', 'rejected')), -- 요청 상태
+    handled_by uuid references admin_profiles(id) on delete set null, -- 승인/거절 처리자
+    handled_at timestamptz, -- 승인/거절 처리 시간
+    reject_reason text, -- 거절 사유
+    created_at timestamptz not null default now(), -- 생성 시간
+    updated_at timestamptz not null default now() -- 업데이트 시간
+);
+
 -- 포인트 이력
 create table point_transactions (
     id uuid primary key default gen_random_uuid(), -- 포인트 이력 ID
@@ -178,6 +194,15 @@ on point_transactions(department_id, transaction_type);
 
 create index idx_point_transactions_adjusted_by
 on point_transactions(adjusted_by);
+
+create index idx_purchase_requests_department_status
+on purchase_requests(department_id, status, created_at desc);
+
+create index idx_purchase_requests_student
+on purchase_requests(student_id);
+
+create index idx_purchase_requests_product
+on purchase_requests(product_id);
 
 -- Initial data seeding
 insert into departments (name) values
