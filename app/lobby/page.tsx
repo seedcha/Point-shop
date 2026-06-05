@@ -53,7 +53,6 @@ export default function LobbyPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [studentChoices, setStudentChoices] = useState<LoginStudent[]>([]);
   const [errorMessage, setErrorMessage] = useState("");
-  const [activeRankingIndex, setActiveRankingIndex] = useState(0);
   const [departments, setDepartments] = useState<DepartmentOption[]>([]);
   const [selectedDepartmentId, setSelectedDepartmentId] = useState("");
   const [rankingRows, setRankingRows] = useState<LobbyRankings["rankings"]>({
@@ -66,7 +65,6 @@ export default function LobbyPage() {
     ...panel,
     rows: rankingRows[panel.id],
   }));
-  const activeRanking = rankingPanels[activeRankingIndex];
 
   const formatPhone = (value: string) => value.replace(/\D/g, "").slice(0, 8);
 
@@ -123,14 +121,6 @@ export default function LobbyPage() {
 
     return () => window.clearTimeout(timeoutId);
   }, [errorMessage]);
-
-  useEffect(() => {
-    const intervalId = window.setInterval(() => {
-      setActiveRankingIndex((currentIndex) => (currentIndex + 1) % rankingPanelMeta.length);
-    }, 5000);
-
-    return () => window.clearInterval(intervalId);
-  }, []);
 
   const handleNumberClick = (num: number) => {
     setErrorMessage("");
@@ -218,51 +208,43 @@ export default function LobbyPage() {
         관리자
       </Link>
 
-      <section className="flex w-1/3 max-w-sm flex-col gap-6">
-        <div className={`rounded-3xl border-t-4 ${activeRanking.borderClass} bg-white p-5 shadow-md`}>
-          <h2 className="mb-4 text-center text-xl font-bold text-gray-800">
-            {activeRanking.title}
-          </h2>
-          <ul className="flex flex-col gap-3">
-            {isLoadingRankings ? (
-              <li className="rounded-xl bg-slate-50 p-4 text-center text-sm font-black text-slate-400">
-                랭킹 불러오는 중
-              </li>
-            ) : activeRanking.rows.length === 0 ? (
-              <li className="rounded-xl bg-slate-50 p-4 text-center text-sm font-black text-slate-400">
-                표시할 학생이 없습니다
-              </li>
-            ) : (
-              activeRanking.rows.map((row, index) => (
-                <li
-                  key={row.id}
-                  className={`flex items-center justify-between gap-4 p-3 font-bold ${
-                    index === 0
-                      ? `rounded-xl ${activeRanking.highlightClass}`
-                      : "border-b border-slate-100 text-gray-700"
-                  }`}
-                >
-                  <span className="min-w-0">
-                    <span className="mr-2">{index + 1}위</span>
-                    <span>{row.name}</span>
-                    <span className="ml-2 text-xs text-slate-400">{row.grade}</span>
-                  </span>
-                  <span className="shrink-0">{row.points.toLocaleString()} DP</span>
+      <section className="flex w-1/3 max-w-sm flex-col gap-3">
+        {rankingPanels.map((panel) => (
+          <div key={panel.id} className={`rounded-2xl border-t-4 ${panel.borderClass} bg-white p-4 shadow-md`}>
+            <h2 className="mb-3 text-center text-lg font-bold text-gray-800">
+              {panel.title}
+            </h2>
+            <ul className="flex flex-col gap-2">
+              {isLoadingRankings ? (
+                <li className="rounded-xl bg-slate-50 p-3 text-center text-sm font-black text-slate-400">
+                  랭킹 불러오는 중
                 </li>
-              ))
-            )}
-          </ul>
-          <div className="mt-4 flex justify-center gap-2">
-            {rankingPanels.map((panel, index) => (
-              <span
-                key={panel.id}
-                className={`h-2 w-2 rounded-full ${
-                  index === activeRankingIndex ? "bg-slate-700" : "bg-slate-300"
-                }`}
-              />
-            ))}
+              ) : panel.rows.length === 0 ? (
+                <li className="rounded-xl bg-slate-50 p-3 text-center text-sm font-black text-slate-400">
+                  표시할 학생이 없습니다
+                </li>
+              ) : (
+                panel.rows.map((row, index) => (
+                  <li
+                    key={row.id}
+                    className={`flex items-center justify-between gap-3 px-3 py-2 text-sm font-bold ${
+                      index === 0
+                        ? `rounded-xl ${panel.highlightClass}`
+                        : "border-b border-slate-100 text-gray-700"
+                    }`}
+                  >
+                    <span className="min-w-0">
+                      <span className="mr-2">{index + 1}위</span>
+                      <span>{row.name}</span>
+                      <span className="ml-2 text-xs text-slate-400">{row.grade}</span>
+                    </span>
+                    <span className="shrink-0">{row.points.toLocaleString()} DP</span>
+                  </li>
+                ))
+              )}
+            </ul>
           </div>
-        </div>
+        ))}
       </section>
 
       <section className="flex w-1/2 max-w-xl flex-col items-center rounded-3xl bg-white p-8 shadow-xl">

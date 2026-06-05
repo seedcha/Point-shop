@@ -49,9 +49,6 @@ const mypageTabs = [
 
 type MypageTab = (typeof mypageTabs)[number]["id"];
 
-const shopCategories = ["전체", "3D프린터", "간식류", "문구류"] as const;
-type ShopCategory = (typeof shopCategories)[number];
-
 function formatKoreaDate(value?: string) {
   if (!value) {
     return "-";
@@ -84,7 +81,6 @@ function DashboardContent() {
   const [pointTransactions, setPointTransactions] = useState<PointTransaction[]>([]);
   const [purchases, setPurchases] = useState<PurchaseHistory[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
-  const [activeShopCategory, setActiveShopCategory] = useState<ShopCategory>("전체");
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [isPurchasing, setIsPurchasing] = useState(false);
   const [message, setMessage] = useState("");
@@ -94,10 +90,6 @@ function DashboardContent() {
     tone: "success" | "error";
   } | null>(null);
   const statusMessage = studentId ? message : "학생 로그인 정보가 없습니다.";
-  const filteredProducts =
-    activeShopCategory === "전체"
-      ? products
-      : products.filter((product) => product.category === activeShopCategory);
 
   useEffect(() => {
     if (!studentId) {
@@ -393,28 +385,13 @@ function DashboardContent() {
 
         {activeMenu === "shop" && (
           <section className="rounded-[32px] border border-slate-100 bg-white p-8 shadow-sm">
-            <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="mb-6">
               <PointHeader points={student?.points ?? 0} />
-              <div className="flex flex-wrap gap-3">
-                {shopCategories.map((category) => (
-                  <button
-                    key={category}
-                    onClick={() => setActiveShopCategory(category)}
-                    className={`rounded-2xl px-5 py-3 text-sm font-black transition ${
-                      activeShopCategory === category
-                        ? "bg-blue-600 text-white shadow-lg"
-                        : "bg-slate-100 text-slate-500 hover:bg-slate-200"
-                    }`}
-                  >
-                    {category}
-                  </button>
-                ))}
-              </div>
             </div>
 
             <div className="max-h-[calc(100vh-270px)] overflow-y-auto pr-2">
               <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
-                {filteredProducts.map((product) => (
+                {products.map((product) => (
                   <button
                     key={product.id}
                     onClick={() => setSelectedProduct(product)}
@@ -438,7 +415,7 @@ function DashboardContent() {
                   </button>
                 ))}
               </div>
-              {!filteredProducts.length && <EmptyState message="표시할 상품이 없습니다." />}
+              {!products.length && <EmptyState message="표시할 상품이 없습니다." />}
             </div>
           </section>
         )}
@@ -458,7 +435,6 @@ function DashboardContent() {
               )}
             </div>
             <div className="mb-6">
-              <p className="text-sm font-black text-slate-400">{selectedProduct.category ?? "상품"}</p>
               <h3 className="mt-1 text-2xl font-black text-slate-900">{selectedProduct.name}</h3>
               <p className="mt-2 text-xl font-black text-blue-600">
                 {selectedProduct.price_dp.toLocaleString()} DP

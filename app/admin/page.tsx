@@ -164,6 +164,7 @@ type RetiredTeacherSummary = {
 
 const LOGIN_ID_PATTERN = /^[a-z]+$/;
 const PASSWORD_MIN_LENGTH = 6;
+const PRODUCT_PRICE_MULTIPLIER = 1000;
 const GRADE_OPTIONS = [
   "3세",
   "4세",
@@ -264,6 +265,38 @@ function pickExcelValue(row: Record<string, string | number>, keys: string[]) {
   return "";
 }
 
+function getRegisteredProductPrice(priceInput: string) {
+  const priceUnit = Number(priceInput);
+
+  if (!Number.isFinite(priceUnit)) {
+    return 0;
+  }
+
+  return priceUnit * PRODUCT_PRICE_MULTIPLIER;
+}
+
+function getStudentSearchResults(students: Student[], searchText: string) {
+  const query = searchText.trim().toLowerCase();
+  const phoneQuery = query.replace(/\D/g, "");
+
+  if (!query) {
+    return students;
+  }
+
+  const exactNameMatches = students.filter((student) => student.name.toLowerCase() === query);
+
+  if (exactNameMatches.length > 0) {
+    return exactNameMatches;
+  }
+
+  return students.filter((student) => {
+    return (
+      student.name.toLowerCase().includes(query) ||
+      (phoneQuery && student.parent_phone.replace(/\D/g, "").includes(phoneQuery))
+    );
+  });
+}
+
 export default function AdminPage() {
   const [session, setSession] = useState<AdminSession | null>(null);
   const [activeView, setActiveView] = useState<AdminView>("students");
@@ -328,6 +361,8 @@ export default function AdminPage() {
   const [checkedStudentIds, setCheckedStudentIds] = useState<Set<string>>(new Set());
   const [studentSearchText, setStudentSearchText] = useState("");
   const [submittedStudentSearchText, setSubmittedStudentSearchText] = useState("");
+  const [missingStudentSearchText, setMissingStudentSearchText] = useState("");
+  const [isMissingStudentModalOpen, setIsMissingStudentModalOpen] = useState(false);
   const [pointAmount, setPointAmount] = useState("");
   const [pointReason, setPointReason] = useState("포인트 조정");
   const [isAdjustingPoints, setIsAdjustingPoints] = useState(false);
@@ -417,18 +452,7 @@ export default function AdminPage() {
   const checkedStudents = scopedStudents.filter((student) => checkedStudentIds.has(student.id));
   const selectedStudent = checkedStudents.length === 1 ? checkedStudents[0] : null;
   const displayedStudents = useMemo(() => {
-    const query = submittedStudentSearchText.trim().toLowerCase();
-
-    if (!query) {
-      return scopedStudents;
-    }
-
-    return scopedStudents.filter((student) => {
-      return (
-        student.name.toLowerCase().includes(query) ||
-        student.parent_phone.replace(/\D/g, "").includes(query.replace(/\D/g, ""))
-      );
-    });
+    return getStudentSearchResults(scopedStudents, submittedStudentSearchText);
   }, [scopedStudents, submittedStudentSearchText]);
 
   useEffect(() => {
@@ -864,7 +888,16 @@ export default function AdminPage() {
 
   const handleStudentSearch = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setSubmittedStudentSearchText(studentSearchText);
+    const nextSearchText = studentSearchText.trim();
+    const nextStudents = getStudentSearchResults(scopedStudents, nextSearchText);
+
+    if (nextSearchText && nextStudents.length === 0) {
+      setMissingStudentSearchText(nextSearchText);
+      setIsMissingStudentModalOpen(true);
+      return;
+    }
+
+    setSubmittedStudentSearchText(nextSearchText);
     setCheckedStudentIds(new Set());
   };
 
@@ -888,11 +921,54 @@ export default function AdminPage() {
     );
   };
 
+  const handleSetCheckedStudentsActive = async (isActive: boolean) => {
+    const studentIds = [...checkedStudentIds];
+    const actionLabel = isActive ? "활성화" : "비활성화";
+
+    if (!studentIds.length) {
+      setDataMessage(`${actionLabel}할 학생을 선택해주세요.`);
+      return;
+    }
+
+    setIsDeletingStudents(true);
+    setDataMessage("");
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const response = await fetch("/api/admin/students", {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${sessionData.session?.access_token ?? ""}`,
+      },
+      body: JSON.stringify({ studentIds, isActive }),
+    });
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      setDataMessage(payload?.error ?? `학생을 ${actionLabel}하지 못했습니다.`);
+      setIsDeletingStudents(false);
+      return;
+    }
+
+    setStudents((currentStudents) =>
+      currentStudents.map((student) =>
+        checkedStudentIds.has(student.id) ? { ...student, is_active: isActive } : student
+      )
+    );
+    setCheckedStudentIds(new Set());
+    setDataMessage(`${studentIds.length}명의 학생을 ${actionLabel}했습니다.`);
+    setIsDeletingStudents(false);
+  };
+
   const handleDeleteCheckedStudents = async () => {
     const studentIds = [...checkedStudentIds];
 
     if (!studentIds.length) {
       setDataMessage("삭제할 학생을 선택해주세요.");
+      return;
+    }
+
+    if (!window.confirm(`선택한 ${studentIds.length}명의 학생을 정말 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.`)) {
       return;
     }
 
@@ -906,7 +982,7 @@ export default function AdminPage() {
         "Content-Type": "application/json",
         Authorization: `Bearer ${sessionData.session?.access_token ?? ""}`,
       },
-      body: JSON.stringify({ studentIds }),
+      body: JSON.stringify({ studentIds, hardDelete: true }),
     });
 
     if (!response.ok) {
@@ -917,9 +993,7 @@ export default function AdminPage() {
     }
 
     setStudents((currentStudents) =>
-      currentStudents.map((student) =>
-        checkedStudentIds.has(student.id) ? { ...student, is_active: false } : student
-      )
+      currentStudents.filter((student) => !checkedStudentIds.has(student.id))
     );
     setCheckedStudentIds(new Set());
     setDataMessage(`${studentIds.length}명의 학생을 삭제했습니다.`);
@@ -1062,7 +1136,7 @@ export default function AdminPage() {
     setProductEmoji(product.emoji ?? "");
     setProductImageUrl(product.image_url ?? "");
     setProductName(product.name);
-    setProductPrice(String(product.price_dp));
+    setProductPrice(String(product.price_dp / PRODUCT_PRICE_MULTIPLIER));
     setProductStock(String(product.stock));
     setIsProductModalOpen(true);
   };
@@ -1128,7 +1202,8 @@ export default function AdminPage() {
       return;
     }
 
-    const priceDp = Number(productPrice);
+    const priceUnit = Number(productPrice);
+    const priceDp = getRegisteredProductPrice(productPrice);
     const stock = Number(productStock);
 
     if (!productName.trim()) {
@@ -1136,7 +1211,7 @@ export default function AdminPage() {
       return;
     }
 
-    if (!Number.isInteger(priceDp) || priceDp < 0) {
+    if (!Number.isInteger(priceUnit) || priceUnit < 0 || !Number.isInteger(priceDp)) {
       setDataMessage("상품 가격은 0 이상의 숫자로 입력해주세요.");
       return;
     }
@@ -2254,6 +2329,8 @@ export default function AdminPage() {
 		              onNewStudentPhoneChange={setNewStudentPhone}
 		              onAddStudent={handleAddStudent}
 		              onStudentModalOpenChange={setIsStudentModalOpen}
+		              onDeactivateCheckedStudents={() => handleSetCheckedStudentsActive(false)}
+		              onActivateCheckedStudents={() => handleSetCheckedStudentsActive(true)}
 		              onDeleteCheckedStudents={handleDeleteCheckedStudents}
 	              onDragStateChange={setIsDraggingStudentFile}
 	            />
@@ -2547,6 +2624,8 @@ function StudentManagementView({
   onNewStudentPhoneChange,
   onAddStudent,
   onStudentModalOpenChange,
+  onDeactivateCheckedStudents,
+  onActivateCheckedStudents,
   onDeleteCheckedStudents,
   onDragStateChange,
 }: {
@@ -2591,6 +2670,8 @@ function StudentManagementView({
   onNewStudentPhoneChange: (phone: string) => void;
   onAddStudent: (event: FormEvent<HTMLFormElement>) => void;
   onStudentModalOpenChange: (isOpen: boolean) => void;
+  onDeactivateCheckedStudents: () => void;
+  onActivateCheckedStudents: () => void;
   onDeleteCheckedStudents: () => void;
   onDragStateChange: (isDragging: boolean) => void;
 }) {
@@ -2619,6 +2700,15 @@ function StudentManagementView({
                 확인
               </button>
             </form>
+            <label className="mt-3 flex items-center gap-3 rounded-xl bg-slate-50 px-4 py-3 text-sm font-black text-slate-600">
+              <input
+                type="checkbox"
+                checked={allStudentsChecked}
+                onChange={(event) => onToggleAllStudents(event.target.checked)}
+                className="h-4 w-4"
+              />
+              전체 선택
+            </label>
           </div>
 
           <div className="divide-y divide-slate-100">
@@ -2627,35 +2717,46 @@ function StudentManagementView({
 
               return (
                 <div key={student.id}>
-                  <button
-                    type="button"
-                    onClick={() => setExpandedStudentId(isExpanded ? "" : student.id)}
-                    className="grid w-full gap-3 px-5 py-4 text-left transition hover:bg-slate-50 sm:grid-cols-[1.1fr_1.4fr_0.8fr_0.9fr_auto]"
-                  >
-                    <div>
-                      <p className="text-xs font-black text-slate-400">학생 이름</p>
-                      <p className="mt-1 font-black">{student.name}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs font-black text-slate-400">부모님 번호</p>
-                      <p className="mt-1 font-bold text-slate-600">{student.parent_phone}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs font-black text-slate-400">학년</p>
-                      <p className="mt-1 font-bold text-slate-600">
-                        {getPromotedGrade(student.grade, student.created_at)}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs font-black text-slate-400">보유 포인트</p>
-                      <p className="mt-1 font-black text-blue-600">
-                        {student.points.toLocaleString()} DP
-                      </p>
-                    </div>
-                    <span className="self-center rounded-xl bg-slate-100 px-3 py-2 text-xs font-black text-slate-600">
-                      {isExpanded ? "닫기" : "열기"}
-                    </span>
-                  </button>
+                  <div className="flex items-stretch transition hover:bg-slate-50">
+                    <label className="flex shrink-0 items-center px-5 py-4">
+                      <input
+                        type="checkbox"
+                        checked={checkedStudentIds.has(student.id)}
+                        onChange={(event) => onStudentCheck(student.id, event.target.checked)}
+                        className="h-4 w-4"
+                        aria-label={`${student.name} 선택`}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setExpandedStudentId(isExpanded ? "" : student.id)}
+                      className="grid min-w-0 flex-1 gap-3 py-4 pr-5 text-left sm:grid-cols-[1.1fr_1.4fr_0.8fr_0.9fr_auto]"
+                    >
+                      <div>
+                        <p className="text-xs font-black text-slate-400">학생 이름</p>
+                        <p className="mt-1 font-black">{student.name}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-black text-slate-400">부모님 번호</p>
+                        <p className="mt-1 font-bold text-slate-600">{student.parent_phone}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-black text-slate-400">학년</p>
+                        <p className="mt-1 font-bold text-slate-600">
+                          {getPromotedGrade(student.grade, student.created_at)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-black text-slate-400">보유 포인트</p>
+                        <p className="mt-1 font-black text-blue-600">
+                          {student.points.toLocaleString()} DP
+                        </p>
+                      </div>
+                      <span className="self-center rounded-xl bg-slate-100 px-3 py-2 text-xs font-black text-slate-600">
+                        {isExpanded ? "닫기" : "열기"}
+                      </span>
+                    </button>
+                  </div>
 
                   {isExpanded && (
                     <div className="grid gap-4 bg-slate-50 px-5 py-5 lg:grid-cols-[1fr_auto]">
@@ -2711,15 +2812,6 @@ function StudentManagementView({
                         >
                           포인트 회수
                         </button>
-                        <label className="mt-2 flex items-center gap-2 rounded-xl bg-white px-3 py-3 text-sm font-black text-slate-600">
-                          <input
-                            type="checkbox"
-                            checked={checkedStudentIds.has(student.id)}
-                            onChange={(event) => onStudentCheck(student.id, event.target.checked)}
-                            className="h-4 w-4"
-                          />
-                          선택
-                        </label>
                       </div>
                     </div>
                   )}
@@ -2873,8 +2965,22 @@ function StudentManagementView({
                 </button>
 	              <button
 	                disabled={!checkedStudentIds.size || isDeletingStudents}
+	                onClick={onDeactivateCheckedStudents}
+                className="rounded-xl bg-slate-100 px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-200 disabled:bg-slate-50 disabled:text-slate-300"
+              >
+                {isDeletingStudents ? "처리 중" : "선택 비활성"}
+              </button>
+	              <button
+	                disabled={!checkedStudentIds.size || isDeletingStudents}
+	                onClick={onActivateCheckedStudents}
+                className="rounded-xl bg-blue-50 px-4 py-3 text-sm font-black text-blue-700 hover:bg-blue-100 disabled:bg-slate-50 disabled:text-slate-300"
+              >
+                {isDeletingStudents ? "처리 중" : "선택 활성화"}
+              </button>
+	              <button
+	                disabled={!checkedStudentIds.size || isDeletingStudents}
 	                onClick={onDeleteCheckedStudents}
-                className="rounded-xl bg-slate-100 px-4 py-3 text-sm font-black text-slate-700 hover:bg-red-50 hover:text-red-600 disabled:bg-slate-50 disabled:text-slate-300"
+                className="rounded-xl bg-rose-50 px-4 py-3 text-sm font-black text-rose-700 hover:bg-rose-100 disabled:bg-slate-50 disabled:text-slate-300"
               >
                 {isDeletingStudents ? "삭제 중" : "선택 삭제"}
               </button>
@@ -3595,6 +3701,7 @@ function ShopManagementView({
   const activeProducts = products.filter((product) => product.is_active);
   const inactiveProducts = products.filter((product) => !product.is_active);
   const displayedProducts = productStatusTab === "active" ? activeProducts : inactiveProducts;
+  const registeredProductPrice = getRegisteredProductPrice(productPrice);
 
   return (
     <div className="mt-8 space-y-4">
@@ -3786,6 +3893,9 @@ function ShopManagementView({
                   onChange={(event) => onProductPriceChange(event.target.value.replace(/\D/g, ""))}
                   className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-bold outline-none focus:border-blue-400 focus:bg-white"
                 />
+                <p className="mt-2 rounded-xl bg-blue-50 px-4 py-3 text-sm font-black text-blue-700">
+                  등록 가격: {registeredProductPrice.toLocaleString()} DP
+                </p>
               </label>
               <label className="block">
                 <span className="text-sm font-bold text-slate-600">상품 재고</span>
