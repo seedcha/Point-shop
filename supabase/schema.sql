@@ -135,6 +135,110 @@ create table point_transactions (
     created_at timestamptz not null default now() -- 생성 시간
 );
 
+-- Point reason presets
+create table point_reason_presets (
+    id uuid primary key default gen_random_uuid(),
+    department_id uuid not null references departments(id) on delete cascade,
+    label text not null,
+    default_points integer check (default_points is null or default_points >= 0),
+    sort_order integer not null default 0 check (sort_order >= 0),
+    is_active boolean not null default true,
+    created_by uuid references admin_profiles(id) on delete set null,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+    constraint point_reason_presets_label_check
+        check (char_length(trim(label)) > 0),
+    constraint point_reason_presets_department_label_key
+        unique (department_id, label)
+);
+
+alter table point_reason_presets enable row level security;
+
+create policy point_reason_presets_select_scope
+on point_reason_presets
+for select
+to authenticated
+using (
+    exists (
+        select 1
+        from admin_profiles
+        where admin_profiles.auth_user_id = auth.uid()
+          and admin_profiles.is_active = true
+          and (
+              admin_profiles.role = 'master'
+              or admin_profiles.department_id = point_reason_presets.department_id
+          )
+    )
+);
+
+create policy point_reason_presets_insert_scope
+on point_reason_presets
+for insert
+to authenticated
+with check (
+    exists (
+        select 1
+        from admin_profiles
+        where admin_profiles.auth_user_id = auth.uid()
+          and admin_profiles.is_active = true
+          and admin_profiles.role in ('master', 'manager')
+          and (
+              admin_profiles.role = 'master'
+              or admin_profiles.department_id = point_reason_presets.department_id
+          )
+    )
+);
+
+create policy point_reason_presets_update_scope
+on point_reason_presets
+for update
+to authenticated
+using (
+    exists (
+        select 1
+        from admin_profiles
+        where admin_profiles.auth_user_id = auth.uid()
+          and admin_profiles.is_active = true
+          and admin_profiles.role in ('master', 'manager')
+          and (
+              admin_profiles.role = 'master'
+              or admin_profiles.department_id = point_reason_presets.department_id
+          )
+    )
+)
+with check (
+    exists (
+        select 1
+        from admin_profiles
+        where admin_profiles.auth_user_id = auth.uid()
+          and admin_profiles.is_active = true
+          and admin_profiles.role in ('master', 'manager')
+          and (
+              admin_profiles.role = 'master'
+              or admin_profiles.department_id = point_reason_presets.department_id
+          )
+    )
+);
+
+create policy point_reason_presets_delete_scope
+on point_reason_presets
+for delete
+to authenticated
+using (
+    label not in ('등원', '수업 참여도 우수', '포인트 조정', '기타')
+    and exists (
+        select 1
+        from admin_profiles
+        where admin_profiles.auth_user_id = auth.uid()
+          and admin_profiles.is_active = true
+          and admin_profiles.role in ('master', 'manager')
+          and (
+              admin_profiles.role = 'master'
+              or admin_profiles.department_id = point_reason_presets.department_id
+          )
+    )
+);
+
 -- 출석 로그
 create table attendance_logs (
     id uuid primary key default gen_random_uuid(), -- 출석 로그 ID
@@ -221,6 +325,12 @@ on point_transactions(department_id, transaction_type);
 create index idx_point_transactions_adjusted_by
 on point_transactions(adjusted_by);
 
+create index idx_point_reason_presets_department_active
+on point_reason_presets(department_id, is_active, created_at);
+
+create index idx_point_reason_presets_department_sort
+on point_reason_presets(department_id, is_active, sort_order);
+
 create index idx_purchase_requests_department_status
 on purchase_requests(department_id, status, created_at desc);
 
@@ -240,6 +350,27 @@ on announcement_award_students(announcement_id, sort_order);
 insert into departments (name) values
 ('대치'), ('판교')
 on conflict (name) do nothing;
+
+insert into point_reason_presets (
+    department_id,
+    label,
+    default_points,
+    sort_order
+)
+select
+    department.id,
+    reason.label,
+    reason.default_points,
+    reason.sort_order
+from departments as department
+cross join (
+    values
+        ('등원', null::integer, 0),
+        ('수업 참여도 우수', null::integer, 1),
+        ('포인트 조정', null::integer, 2),
+        ('기타', null::integer, 3)
+) as reason(label, default_points, sort_order)
+on conflict (department_id, label) do nothing;
 
 insert into admin_profiles (manager_name, login_id, auth_user_id, role, department_id) values
 ('Kyle', 'kyle0108', 'd5ad371c-0b63-46b1-90db-fbd774d37123', 'master', null)
