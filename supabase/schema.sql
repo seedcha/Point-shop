@@ -155,6 +155,32 @@ create table announcements (
     created_at timestamptz not null default now() -- 생성 시간
 );
 
+-- 홈 공지
+create table home_announcements (
+    id uuid primary key default gen_random_uuid(),
+    department_id uuid not null references departments(id) on delete cascade,
+    type text not null check (type in ('contest', 'vacation', 'award')),
+    title text not null,
+    start_date date not null,
+    end_date date not null,
+    details text,
+    is_active boolean not null default true,
+    created_by uuid references admin_profiles(id) on delete set null,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+    constraint home_announcements_date_check check (end_date >= start_date)
+);
+
+-- 수상 공지 학생 목록
+create table announcement_award_students (
+    id uuid primary key default gen_random_uuid(),
+    announcement_id uuid not null references home_announcements(id) on delete cascade,
+    student_name text not null,
+    award_name text not null,
+    sort_order integer not null default 0 check (sort_order >= 0),
+    created_at timestamptz not null default now()
+);
+
 -- indexes for performance optimization
 -- 관리자가 로그인했을 때 자기 가맹점 기준 조회
 create index idx_admin_profiles_department_id
@@ -203,6 +229,12 @@ on purchase_requests(student_id);
 
 create index idx_purchase_requests_product
 on purchase_requests(product_id);
+
+create index idx_home_announcements_department
+on home_announcements(department_id, is_active, start_date, end_date);
+
+create index idx_award_students_announcement
+on announcement_award_students(announcement_id, sort_order);
 
 -- Initial data seeding
 insert into departments (name) values
