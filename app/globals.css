@@ -1,26 +1,305 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #fcf9f8;
+  --foreground: #1c1b1b;
+  --surface: #ffffff;
+  --surface-low: #f8f9fa;
+  --surface-container: #f0edec;
+  --surface-high: #e5e2e1;
+  --primary: #2e3192;
+  --primary-strong: #15157d;
+  --primary-soft: #e1e0ff;
+  --secondary: #f37021;
+  --secondary-strong: #a04100;
+  --secondary-soft: #ffdbcb;
+  --tertiary: #555555;
+  --neutral: #111111;
+  --muted: #777683;
+  --border: #e2e4e8;
+  --border-strong: #c7c5d4;
+  --error: #ba1a1a;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-noto-sans);
+  --font-display: var(--font-hanken);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  border-color: var(--border);
+}
+
+html {
+  background: var(--background);
 }
 
 body {
+  min-width: 320px;
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-noto-sans), Arial, sans-serif;
+  letter-spacing: 0;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+button,
+label,
+th,
+select {
+  font-family: var(--font-hanken), var(--font-noto-sans), sans-serif;
+  letter-spacing: 0;
+}
+
+button,
+a,
+input,
+select,
+textarea {
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    box-shadow 160ms ease,
+    opacity 160ms ease;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+input,
+select,
+textarea {
+  border-color: var(--border-strong) !important;
+  background-color: var(--surface) !important;
+  color: var(--foreground);
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--primary) !important;
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #92909b;
+}
+
+body [class*="rounded-[32px]"],
+body [class*="rounded-3xl"],
+body [class*="rounded-2xl"] {
+  border-radius: 8px !important;
+}
+
+body [class*="rounded-xl"] {
+  border-radius: 4px !important;
+}
+
+body [class*="shadow-2xl"],
+body [class*="shadow-xl"],
+body [class*="shadow-lg"] {
+  box-shadow: 0 4px 12px rgb(46 49 146 / 8%) !important;
+}
+
+body [class*="shadow-md"],
+body [class*="shadow-sm"] {
+  box-shadow: none !important;
+}
+
+body section[class*="shadow"],
+body aside[class*="shadow"],
+body div[class*="shadow"] {
+  border: 1px solid var(--border);
+}
+
+body .bg-white {
+  background-color: var(--surface) !important;
+}
+
+body .bg-slate-50 {
+  background-color: var(--surface-low) !important;
+}
+
+body .bg-slate-100 {
+  background-color: var(--background) !important;
+}
+
+body .bg-slate-200 {
+  background-color: var(--surface-container) !important;
+}
+
+body .bg-slate-300 {
+  background-color: var(--surface-high) !important;
+}
+
+body .bg-slate-900,
+body .bg-slate-950 {
+  background-color: var(--neutral) !important;
+}
+
+body .bg-blue-50 {
+  background-color: var(--primary-soft) !important;
+}
+
+body .bg-blue-100 {
+  background-color: #d5d5ff !important;
+}
+
+body .bg-blue-600 {
+  background-color: var(--primary) !important;
+}
+
+body .bg-blue-700,
+body .bg-blue-800 {
+  background-color: var(--primary-strong) !important;
+}
+
+body .bg-amber-50,
+body .bg-orange-50 {
+  background-color: var(--secondary-soft) !important;
+}
+
+body .bg-amber-500,
+body .bg-orange-500,
+body .bg-orange-600 {
+  background-color: var(--secondary) !important;
+}
+
+body .bg-emerald-50 {
+  background-color: #fff1e9 !important;
+}
+
+body .bg-rose-50,
+body .bg-red-50 {
+  background-color: #ffdad6 !important;
+}
+
+body .bg-rose-600,
+body .bg-red-600 {
+  background-color: var(--error) !important;
+}
+
+body .text-blue-500,
+body .text-blue-600,
+body .text-blue-700 {
+  color: var(--primary) !important;
+}
+
+body .text-amber-600,
+body .text-amber-700,
+body .text-orange-600,
+body .text-emerald-700 {
+  color: var(--secondary-strong) !important;
+}
+
+body .text-slate-900,
+body .text-gray-800 {
+  color: var(--neutral) !important;
+}
+
+body .text-slate-800,
+body .text-slate-700,
+body .text-gray-700 {
+  color: #34333b !important;
+}
+
+body .text-slate-600,
+body .text-slate-500,
+body .text-gray-500 {
+  color: #5f5e69 !important;
+}
+
+body .text-slate-400 {
+  color: var(--muted) !important;
+}
+
+body .text-red-400,
+body .text-red-500,
+body .text-red-600,
+body .text-red-700,
+body .text-rose-600,
+body .text-rose-700 {
+  color: var(--error) !important;
+}
+
+body .border-slate-100,
+body .border-slate-200,
+body .border-slate-300 {
+  border-color: var(--border) !important;
+}
+
+body .border-blue-200,
+body .border-blue-300,
+body .border-blue-400,
+body .border-blue-500 {
+  border-color: var(--primary) !important;
+}
+
+body .border-amber-400,
+body .border-emerald-500 {
+  border-color: var(--secondary) !important;
+}
+
+body .hover\:bg-blue-700:hover,
+body .hover\:bg-blue-600:hover {
+  background-color: var(--primary-strong) !important;
+}
+
+body .hover\:bg-orange-700:hover,
+body .hover\:bg-orange-600:hover {
+  background-color: var(--secondary-strong) !important;
+}
+
+body .hover\:bg-slate-50:hover,
+body .hover\:bg-slate-100:hover,
+body .hover\:bg-slate-200:hover {
+  background-color: var(--surface-container) !important;
+}
+
+body .hover\:text-blue-600:hover {
+  color: var(--primary) !important;
+}
+
+body .disabled\:bg-slate-300:disabled,
+body .disabled\:bg-slate-200:disabled {
+  background-color: var(--surface-high) !important;
+  color: #92909b !important;
+}
+
+body .divide-slate-100 > :not(:last-child) {
+  border-color: var(--border) !important;
+}
+
+body [class*="fixed"][class*="inset-0"][class*="bg-slate-950"] {
+  background-color: rgb(17 17 17 / 38%) !important;
+  backdrop-filter: blur(8px);
+}
+
+table tbody tr:nth-child(even) {
+  background-color: var(--surface-low);
+}
+
+table tbody tr:hover {
+  background-color: var(--primary-soft) !important;
+}
+
+@media (max-width: 767px) {
+  body {
+    font-size: 14px;
+  }
 }

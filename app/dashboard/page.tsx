@@ -233,40 +233,41 @@ function DashboardContent() {
   };
 
   return (
-    <div className="flex min-h-screen bg-slate-50">
-      <aside className="z-10 flex w-64 flex-col border-r border-slate-200 bg-white shadow-xl">
-        <div className="border-b border-slate-100 p-8 text-center">
-          <h1 className="text-2xl font-black tracking-wider text-blue-600">
+    <div className="flex min-h-screen flex-col bg-slate-50 lg:flex-row">
+      <aside className="z-10 flex w-full flex-col border-b border-slate-200 bg-white lg:w-64 lg:border-b-0 lg:border-r">
+        <div className="border-b border-slate-100 px-6 py-5 text-left lg:p-8 lg:text-center">
+          <p className="mb-2 text-xs font-black text-orange-600">EDUCATION LAB</p>
+          <h1 className="text-2xl font-black text-blue-600">
             POINT
             <br />
             SYSTEM
           </h1>
         </div>
 
-        <nav className="flex-1 space-y-2 p-4">
+        <nav className="grid grid-cols-2 gap-2 p-4 lg:flex-1 lg:grid-cols-1">
           <button
             onClick={() => setActiveMenu("mypage")}
-            className={`flex w-full items-center gap-4 rounded-2xl px-6 py-4 font-bold transition-all ${
+            className={`flex w-full items-center gap-4 rounded-xl border-b-2 px-6 py-4 font-bold transition-all ${
               activeMenu === "mypage"
-                ? "bg-blue-600 text-white shadow-lg"
-                : "text-slate-400 hover:bg-slate-100"
+                ? "border-blue-500 bg-blue-50 text-blue-700"
+                : "border-transparent text-slate-500 hover:bg-slate-100"
             }`}
           >
             마이페이지
           </button>
           <button
             onClick={() => setActiveMenu("shop")}
-            className={`flex w-full items-center gap-4 rounded-2xl px-6 py-4 font-bold transition-all ${
+            className={`flex w-full items-center gap-4 rounded-xl border-b-2 px-6 py-4 font-bold transition-all ${
               activeMenu === "shop"
-                ? "bg-blue-600 text-white shadow-lg"
-                : "text-slate-400 hover:bg-slate-100"
+                ? "border-blue-500 bg-blue-50 text-blue-700"
+                : "border-transparent text-slate-500 hover:bg-slate-100"
             }`}
           >
             상점 입장
           </button>
         </nav>
 
-        <div className="border-t border-slate-100 p-6">
+        <div className="hidden border-t border-slate-100 p-6 lg:block">
           <Link href="/lobby">
             <button className="w-full rounded-xl bg-red-50 py-3 text-sm font-bold text-red-400 transition hover:bg-red-100">
               로그아웃
@@ -275,8 +276,8 @@ function DashboardContent() {
         </div>
       </aside>
 
-      <main className="flex-1 overflow-y-auto p-10">
-        <header className="mb-10 flex items-center justify-between">
+      <main className="min-w-0 flex-1 overflow-y-auto p-5 md:p-8 lg:p-10">
+        <header className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between lg:mb-10">
           <div>
             <h2 className="text-3xl font-bold text-slate-800">
               {activeMenu === "mypage" ? "마이페이지" : "상점 입장"}
@@ -285,7 +286,7 @@ function DashboardContent() {
               {student ? `${student.name} 학생, 오늘도 즐겁게 배워봐요!` : statusMessage}
             </p>
           </div>
-          <div className="flex items-center gap-4 rounded-3xl border border-slate-200 bg-white px-8 py-4 shadow-sm">
+          <div className="flex items-center justify-between gap-4 rounded-3xl border border-slate-200 bg-white px-5 py-3 shadow-sm sm:justify-start sm:px-8 sm:py-4">
             <span className="font-bold text-slate-500">보유 포인트</span>
             <span className="text-3xl font-black text-blue-600">
               {(student?.points ?? 0).toLocaleString()} DP
@@ -294,7 +295,7 @@ function DashboardContent() {
         </header>
 
         {activeMenu === "mypage" && (
-          <section className="rounded-[32px] border border-slate-100 bg-white p-8 shadow-sm">
+          <section className="rounded-[32px] border border-slate-200 bg-white p-8 shadow-sm">
             <div className="mb-8 flex flex-wrap gap-3">
               {mypageTabs.map((tab) => (
                 <button
@@ -384,33 +385,39 @@ function DashboardContent() {
         )}
 
         {activeMenu === "shop" && (
-          <section className="rounded-[32px] border border-slate-100 bg-white p-8 shadow-sm">
+          <section className="rounded-[32px] border border-slate-200 bg-white p-8 shadow-sm">
             <div className="mb-6">
               <PointHeader points={student?.points ?? 0} />
             </div>
 
             <div className="max-h-[calc(100vh-270px)] overflow-y-auto pr-2">
-              <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
+              <div className="grid grid-cols-2 gap-3 md:gap-5 xl:grid-cols-3">
                 {products.map((product) => (
                   <button
                     key={product.id}
                     onClick={() => setSelectedProduct(product)}
-                    className="min-h-48 rounded-3xl bg-slate-50 p-5 text-left transition hover:bg-white hover:shadow-xl"
+                    className="aspect-square min-w-0 overflow-hidden rounded-3xl border border-slate-200 bg-slate-50 p-3 text-left transition hover:bg-white hover:shadow-xl sm:p-5"
                   >
-                    <div className="mb-4 flex h-24 items-center justify-center rounded-2xl bg-white text-6xl">
-                      {product.image_url ? (
-                        <span
-                          className="h-full w-full rounded-2xl bg-cover bg-center"
-                          style={{ backgroundImage: `url(${product.image_url})` }}
-                        />
-                      ) : (
-                        product.emoji ?? "상품"
-                      )}
-                    </div>
-                    <div className="space-y-1">
-                      <p className="text-lg font-black text-slate-900">{product.name}</p>
-                      <p className="font-black text-blue-600">{product.price_dp.toLocaleString()} DP</p>
-                      <p className="text-xs font-bold text-slate-400">재고 {product.stock.toLocaleString()}개</p>
+                    <div className="flex h-full min-h-0 flex-col">
+                      <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-2xl bg-white text-6xl">
+                        {product.image_url ? (
+                          <span
+                            className="h-full w-full rounded-2xl bg-cover bg-center"
+                            style={{ backgroundImage: `url(${product.image_url})` }}
+                          />
+                        ) : (
+                          product.emoji ?? "상품"
+                        )}
+                      </div>
+                      <div className="h-24 shrink-0 pt-4">
+                        <p className="line-clamp-1 text-sm font-black text-slate-900 sm:text-lg">{product.name}</p>
+                        <p className="mt-1 font-black text-blue-600">
+                          {product.price_dp.toLocaleString()} DP
+                        </p>
+                        <p className="mt-1 text-xs font-bold text-slate-400">
+                          재고 {product.stock.toLocaleString()}개
+                        </p>
+                      </div>
                     </div>
                   </button>
                 ))}
@@ -444,7 +451,7 @@ function DashboardContent() {
               <button
                 onClick={handlePurchase}
                 disabled={isPurchasing}
-                className="rounded-2xl bg-blue-600 py-4 font-black text-white transition hover:bg-blue-700 disabled:bg-slate-300"
+                className="rounded-2xl bg-orange-600 py-4 font-black text-white transition hover:bg-orange-700 disabled:bg-slate-300"
               >
                 {isPurchasing ? "구매 중" : "물품 구매"}
               </button>

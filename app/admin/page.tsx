@@ -12,6 +12,7 @@ type AdminView =
   | "teachers"
   | "shop"
   | "purchaseRequests"
+  | "pointReasons"
   | "departments"
   | "announcements";
 
@@ -127,6 +128,13 @@ type Announcement = {
   title: string;
   content: string;
   created_at: string;
+};
+
+type PointReasonPreset = {
+  id: string;
+  label: string;
+  defaultPoints: number | null;
+  sortOrder: number;
 };
 
 type TeacherTransaction = {
@@ -370,7 +378,7 @@ export default function AdminPage() {
   const [savingStudentNoteId, setSavingStudentNoteId] = useState<string | null>(null);
   const [batchPointMode, setBatchPointMode] = useState<"give" | "recover" | null>(null);
   const [batchPointAmount, setBatchPointAmount] = useState("");
-  const [batchPointReason, setBatchPointReason] = useState("");
+  const [batchPointReason, setBatchPointReason] = useState("포인트 조정");
   const [newStudentName, setNewStudentName] = useState("");
   const [newStudentGrade, setNewStudentGrade] = useState("");
   const [newStudentPhone, setNewStudentPhone] = useState("");
@@ -402,6 +410,8 @@ export default function AdminPage() {
   const canMutateFranchises = session?.role === "master";
   const canOpenAnnouncements =
     session?.role === "manager" || (session?.role === "master" && hasSelectedFranchise);
+  const canManagePointReasons =
+    session?.role === "manager" || (session?.role === "master" && hasSelectedFranchise);
   const scopeLabel =
     session?.role === "master"
       ? selectedFranchiseId
@@ -419,9 +429,10 @@ export default function AdminPage() {
         { id: "teachers" as const, label: "강사 관리", allowed: canManageTeachers },
         { id: "shop" as const, label: "상점 관리", allowed: canUseShop },
         { id: "purchaseRequests" as const, label: "구매 신청 관리", allowed: canUseShop },
+        { id: "pointReasons" as const, label: "포인트 사유 관리", allowed: canManagePointReasons },
         { id: "announcements" as const, label: "공지 관리", allowed: canOpenAnnouncements },
       ].filter((item) => item.allowed),
-    [canManageFranchises, canManageTeachers, canOpenAnnouncements, canUseShop, hasSelectedFranchise, session?.role]
+    [canManageFranchises, canManagePointReasons, canManageTeachers, canOpenAnnouncements, canUseShop, hasSelectedFranchise, session?.role]
   );
 
   const scopedStudents = useMemo(() => {
@@ -1717,6 +1728,11 @@ export default function AdminPage() {
       return;
     }
 
+    if (!pointReason.trim()) {
+      setDataMessage("포인트 지급 사유를 선택하거나 직접 입력해주세요.");
+      return;
+    }
+
     const nextBalance = selectedStudent.points + parsedAmount;
 
     if (nextBalance < 0) {
@@ -1771,6 +1787,11 @@ export default function AdminPage() {
 
     if (!Number.isInteger(absAmount) || absAmount === 0) {
       setDataMessage("포인트를 입력하고 지급 또는 회수 버튼을 눌러주세요.");
+      return;
+    }
+
+    if (!pointReason.trim()) {
+      setDataMessage("포인트 지급 사유를 선택하거나 직접 입력해주세요.");
       return;
     }
 
@@ -1830,6 +1851,11 @@ export default function AdminPage() {
       return;
     }
 
+    if (!batchPointReason.trim()) {
+      setDataMessage("일괄 포인트 지급 사유를 선택하거나 직접 입력해주세요.");
+      return;
+    }
+
     const signedAmount = batchPointMode === "give" ? absAmount : -absAmount;
     const targets = students.filter((student) => checkedStudentIds.has(student.id));
 
@@ -1874,7 +1900,7 @@ export default function AdminPage() {
     );
     setBatchPointMode(null);
     setBatchPointAmount("");
-    setBatchPointReason("");
+    setBatchPointReason("포인트 조정");
     setDataMessage(`${targets.length}명에게 포인트를 일괄 변경했습니다.`);
     setIsAdjustingPoints(false);
   };
@@ -1975,9 +2001,9 @@ export default function AdminPage() {
           학생 화면
         </Link>
 
-        <section className="w-full max-w-md rounded-3xl bg-white p-8 shadow-xl">
+        <section className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-8 shadow-xl">
           <div className="text-center">
-            <p className="text-sm font-bold text-blue-600">POINT SYSTEM</p>
+            <p className="text-sm font-bold text-orange-600">POINT SYSTEM</p>
             <h1 className="mt-2 text-3xl font-black text-slate-900">관리자</h1>
             <p className="mt-2 text-sm text-slate-500">관리자 아이디로 로그인하세요.</p>
           </div>
@@ -2055,7 +2081,7 @@ export default function AdminPage() {
         <aside className="border-b border-slate-200 bg-white px-5 py-6 lg:border-b-0 lg:border-r">
           <div className="flex items-center justify-between lg:block">
             <div>
-              <p className="text-xs font-black text-blue-600">POINT SYSTEM</p>
+              <p className="text-xs font-black text-orange-600">POINT SYSTEM</p>
               <h1 className="mt-2 text-2xl font-black">관리 콘솔</h1>
             </div>
             <Link href="/" className="text-sm font-bold text-slate-500 hover:text-blue-600">
@@ -2072,7 +2098,7 @@ export default function AdminPage() {
 
           <nav className="mt-6 space-y-2">
             {navItems.map((item) => {
-              const isFranchiseChild = ["students", "teachers", "shop", "purchaseRequests", "announcements"].includes(item.id);
+              const isFranchiseChild = ["students", "teachers", "shop", "purchaseRequests", "pointReasons", "announcements"].includes(item.id);
               const franchiseChildLabel =
                 isFranchiseChild && selectedFranchiseId
                   ? `${item.label} (${departmentNameById.get(selectedFranchiseId) ?? "선택 가맹점"})`
@@ -2103,10 +2129,10 @@ export default function AdminPage() {
                   }
 
                 }}
-                className={`w-full rounded-xl px-4 py-3 text-left text-sm font-black transition ${
+                className={`w-full rounded-xl border-b-2 px-4 py-3 text-left text-sm font-black transition ${
                   activeView === item.id
-                    ? "bg-blue-600 text-white"
-                    : "bg-white text-slate-600 hover:bg-slate-100"
+                    ? "border-blue-500 bg-blue-50 text-blue-700"
+                    : "border-transparent bg-white text-slate-600 hover:bg-slate-100"
                 } ${isFranchiseChild ? "ml-4 w-[calc(100%-1rem)] border-l-4 border-blue-200 pl-3" : ""}`}
               >
                 {isFranchiseChild ? franchiseChildLabel : item.label}
@@ -2140,6 +2166,7 @@ export default function AdminPage() {
 	                {activeView === "departments" && "가맹점 관리"}
 	                {activeView === "announcements" && "공지 관리"}
 	                {activeView === "purchaseRequests" && "구매 신청 관리"}
+	                {activeView === "pointReasons" && "포인트 사유 관리"}
 	              </h2>
 	            </div>
             {isLoadingData && <p className="text-sm font-bold text-slate-500">불러오는 중</p>}
@@ -2154,6 +2181,11 @@ export default function AdminPage() {
 	          {activeView === "students" ? (
 		            <StudentManagementView
 		              role={session.role}
+                  departmentId={
+                    session.role === "master"
+                      ? selectedFranchiseId
+                      : session.departmentId ?? ""
+                  }
 		              students={displayedStudents}
 		              selectedStudent={selectedStudent}
 		              checkedStudentIds={checkedStudentIds}
@@ -2264,6 +2296,14 @@ export default function AdminPage() {
                 onApprove={(request) => handleProcessPurchaseRequest(request, "approve")}
                 onReject={(request) => handleProcessPurchaseRequest(request, "reject")}
               />
+              ) : activeView === "pointReasons" ? (
+                <PointReasonManagementView
+                  departmentId={
+                    session.role === "master"
+                      ? selectedFranchiseId
+                      : session.departmentId ?? ""
+                  }
+                />
 		          ) : activeView === "departments" ? (
 	            <DepartmentManagementView
 		      departments={
@@ -2425,8 +2465,75 @@ export default function AdminPage() {
   );
 }
 
+const REQUIRED_POINT_REASONS = ["등원", "수업 참여도 우수", "포인트 조정", "기타"] as const;
+
+function PointReasonSelector({
+  value,
+  presets,
+  onChange,
+  onDefaultPointsSelect,
+  compact = false,
+}: {
+  value: string;
+  presets: PointReasonPreset[];
+  onChange: (reason: string) => void;
+  onDefaultPointsSelect?: (points: number) => void;
+  compact?: boolean;
+}) {
+  const presetLabels = presets.map((preset) => preset.label);
+  const reasonLabels = Array.from(new Set([
+    ...presetLabels,
+    ...REQUIRED_POINT_REASONS.filter((reason) => !presetLabels.includes(reason)),
+  ]));
+  const [isOtherMode, setIsOtherMode] = useState(false);
+  const selectedReason =
+    (isOtherMode && !value) || (value && !reasonLabels.includes(value))
+      ? "기타"
+      : reasonLabels.includes(value)
+        ? value
+        : "포인트 조정";
+
+  const handleSelectChange = (nextValue: string) => {
+    setIsOtherMode(nextValue === "기타");
+    onChange(nextValue === "기타" ? "" : nextValue);
+
+    const preset = presets.find((reason) => reason.label === nextValue);
+
+    if (preset?.defaultPoints !== null && preset?.defaultPoints !== undefined) {
+      onDefaultPointsSelect?.(preset.defaultPoints);
+    }
+  };
+
+  return (
+    <div className={compact ? "grid gap-2" : "grid gap-2"}>
+      <select
+        value={selectedReason}
+        onChange={(event) => handleSelectChange(event.target.value)}
+        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-blue-400"
+      >
+        {reasonLabels.map((reason) => (
+          <option key={reason} value={reason}>
+            {reason}
+          </option>
+        ))}
+      </select>
+
+      {selectedReason === "기타" && (
+        <input
+          type="text"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-blue-400"
+          placeholder="포인트 지급 사유를 직접 입력하세요"
+        />
+      )}
+    </div>
+  );
+}
+
 function StudentManagementView({
   role,
+  departmentId,
   students,
   selectedStudent,
   checkedStudentIds,
@@ -2473,6 +2580,7 @@ function StudentManagementView({
   onDragStateChange,
 }: {
   role: AdminRole;
+  departmentId: string;
   students: Student[];
   selectedStudent: Student | null;
   checkedStudentIds: Set<string>;
@@ -2524,6 +2632,44 @@ function StudentManagementView({
   const checkedStudents = students.filter((student) => checkedStudentIds.has(student.id));
   const [expandedStudentId, setExpandedStudentId] = useState("");
   const [expandedNoteStudentId, setExpandedNoteStudentId] = useState("");
+  const [pointReasonPresets, setPointReasonPresets] = useState<PointReasonPreset[]>([]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadPointReasons() {
+      if (!departmentId) {
+        setPointReasonPresets([]);
+        return;
+      }
+
+      const { data: sessionData } = await supabase.auth.getSession();
+      const params = new URLSearchParams({ departmentId });
+      const response = await fetch(`/api/admin/point-reasons?${params.toString()}`, {
+        headers: {
+          Authorization: `Bearer ${sessionData.session?.access_token ?? ""}`,
+        },
+      });
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (!response.ok) {
+        setPointReasonPresets([]);
+        return;
+      }
+
+      const payload = (await response.json()) as { reasons?: PointReasonPreset[] };
+      setPointReasonPresets(payload.reasons ?? []);
+    }
+
+    loadPointReasons();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [departmentId]);
 
   if (isPointFocused) {
     return (
@@ -2615,12 +2761,12 @@ function StudentManagementView({
                             className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-blue-400"
                             placeholder="포인트"
                           />
-                          <input
-                            type="text"
+                          <PointReasonSelector
                             value={pointReason}
-                            onChange={(event) => onPointReasonChange(event.target.value)}
-                            className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-blue-400"
-                            placeholder="지급/회수 사유"
+                            presets={pointReasonPresets}
+                            onChange={onPointReasonChange}
+                            onDefaultPointsSelect={(points) => onPointAmountChange(String(points))}
+                            compact
                           />
                         </div>
                         <textarea
@@ -2713,13 +2859,14 @@ function StudentManagementView({
                 onChange={(event) => onBatchPointAmountChange(event.target.value.replace(/\D/g, ""))}
                 className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 font-bold outline-none focus:border-blue-400"
               />
-              <input
-                type="text"
-                value={batchPointReason}
-                onChange={(event) => onBatchPointReasonChange(event.target.value)}
-                className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 font-bold outline-none focus:border-blue-400"
-                placeholder="일괄 지급/회수 사유"
-              />
+              <div className="mt-2">
+                <PointReasonSelector
+                  value={batchPointReason}
+                  presets={pointReasonPresets}
+                  onChange={onBatchPointReasonChange}
+                  onDefaultPointsSelect={(points) => onBatchPointAmountChange(String(points))}
+                />
+              </div>
               <div className="mt-3 grid grid-cols-2 gap-2">
                 <button
                   disabled={isAdjustingPoints}
@@ -2733,7 +2880,7 @@ function StudentManagementView({
                   onClick={() => {
                     onBatchPointModeChange(null);
                     onBatchPointAmountChange("");
-                    onBatchPointReasonChange("");
+                    onBatchPointReasonChange("포인트 조정");
                   }}
                   className="rounded-xl bg-slate-100 px-3 py-3 text-sm font-black text-slate-600 hover:bg-slate-200"
                 >
@@ -2986,15 +3133,17 @@ function StudentManagementView({
                 placeholder="포인트 차감은 -를 붙이세요"
 	            />
 	          </label>
-          <label className="block">
+          <div>
             <span className="text-sm font-bold text-slate-600">사유</span>
-            <input
-              type="text"
-              value={pointReason}
-              onChange={(event) => onPointReasonChange(event.target.value)}
-              className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-bold outline-none focus:border-blue-400 focus:bg-white"
-            />
-          </label>
+            <div className="mt-2">
+              <PointReasonSelector
+                value={pointReason}
+                presets={pointReasonPresets}
+                onChange={onPointReasonChange}
+                onDefaultPointsSelect={(points) => onPointAmountChange(String(points))}
+              />
+            </div>
+          </div>
 	          <div>
 	            <button
 	              disabled={!selectedStudent || checkedStudentIds.size !== 1 || isAdjustingPoints}
@@ -4264,6 +4413,490 @@ function DepartmentManagementView({
         </div>
       )}
     </div>
+  );
+}
+
+function PointReasonManagementView({ departmentId }: { departmentId: string }) {
+  const [reasons, setReasons] = useState<PointReasonPreset[]>([]);
+  const [checkedReasonIds, setCheckedReasonIds] = useState<Set<string>>(new Set());
+  const [editingReasonId, setEditingReasonId] = useState("");
+  const [editingPoints, setEditingPoints] = useState("");
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [newReasonName, setNewReasonName] = useState("");
+  const [newReasonPoints, setNewReasonPoints] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDeletingReasons, setIsDeletingReasons] = useState(false);
+  const [isReordering, setIsReordering] = useState(false);
+  const [message, setMessage] = useState("");
+  const deletableCheckedReasons = reasons.filter(
+    (reason) =>
+      checkedReasonIds.has(reason.id) &&
+      !REQUIRED_POINT_REASONS.includes(
+        reason.label as (typeof REQUIRED_POINT_REASONS)[number]
+      )
+  );
+
+  const getHeaders = async () => {
+    const { data: sessionData } = await supabase.auth.getSession();
+
+    return {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${sessionData.session?.access_token ?? ""}`,
+    };
+  };
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadReasons() {
+      setIsLoading(true);
+      setMessage("");
+      setEditingReasonId("");
+      setCheckedReasonIds(new Set());
+      const headers = await getHeaders();
+      const params = new URLSearchParams({ departmentId });
+      const response = await fetch(`/api/admin/point-reasons?${params.toString()}`, { headers });
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+        setMessage(payload?.error ?? "포인트 사유를 불러오지 못했습니다.");
+        setReasons([]);
+        setIsLoading(false);
+        return;
+      }
+
+      const payload = (await response.json()) as { reasons?: PointReasonPreset[] };
+      setReasons(payload.reasons ?? []);
+      setIsLoading(false);
+    }
+
+    loadReasons();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [departmentId]);
+
+  const handleReasonCheck = (reasonId: string, checked: boolean) => {
+    setCheckedReasonIds((currentIds) => {
+      const nextIds = new Set(currentIds);
+
+      if (checked) {
+        nextIds.add(reasonId);
+      } else {
+        nextIds.delete(reasonId);
+      }
+
+      return nextIds;
+    });
+  };
+
+  const handleEditStart = (reason: PointReasonPreset) => {
+    setEditingReasonId(reason.id);
+    setEditingPoints(
+      reason.defaultPoints === null ? "" : String(reason.defaultPoints / 1000)
+    );
+    setMessage("");
+  };
+
+  const handleEditConfirm = async () => {
+    if (!editingReasonId) {
+      return;
+    }
+
+    setIsSaving(true);
+    setMessage("");
+    const headers = await getHeaders();
+    const response = await fetch("/api/admin/point-reasons", {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({
+        id: editingReasonId,
+        departmentId,
+        defaultPoints: editingPoints ? Number(editingPoints) * 1000 : null,
+      }),
+    });
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      setMessage(payload?.error ?? "포인트 값을 수정하지 못했습니다.");
+      setIsSaving(false);
+      return;
+    }
+
+    const payload = (await response.json()) as { reason: PointReasonPreset };
+    setReasons((currentReasons) =>
+      currentReasons.map((reason) => (reason.id === payload.reason.id ? payload.reason : reason))
+    );
+    setEditingReasonId("");
+    setEditingPoints("");
+    setMessage("포인트 값을 수정했습니다.");
+    setIsSaving(false);
+  };
+
+  const handleAddReason = async () => {
+    if (!newReasonName.trim()) {
+      setMessage("포인트 사유 이름을 입력해주세요.");
+      return;
+    }
+
+    if (!newReasonPoints) {
+      setMessage("지급 포인트 값을 입력해주세요.");
+      return;
+    }
+
+    setIsSaving(true);
+    setMessage("");
+    const headers = await getHeaders();
+    const response = await fetch("/api/admin/point-reasons", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        departmentId,
+        label: newReasonName,
+        defaultPoints: newReasonPoints ? Number(newReasonPoints) * 1000 : null,
+      }),
+    });
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      setMessage(payload?.error ?? "포인트 사유를 추가하지 못했습니다.");
+      setIsSaving(false);
+      return;
+    }
+
+    const payload = (await response.json()) as { reason: PointReasonPreset };
+    setReasons((currentReasons) => [...currentReasons, payload.reason]);
+    setNewReasonName("");
+    setNewReasonPoints("");
+    setIsAddModalOpen(false);
+    setMessage("포인트 사유를 추가했습니다.");
+    setIsSaving(false);
+  };
+
+  const handleDeleteCheckedReasons = async () => {
+    if (!deletableCheckedReasons.length) {
+      return;
+    }
+
+    if (
+      !window.confirm(
+        `선택한 포인트 사유 ${deletableCheckedReasons.length}개를 삭제하시겠습니까?`
+      )
+    ) {
+      return;
+    }
+
+    setIsDeletingReasons(true);
+    setMessage("");
+    const headers = await getHeaders();
+    const deletedIds: string[] = [];
+
+    for (const reason of deletableCheckedReasons) {
+      const params = new URLSearchParams({ id: reason.id, departmentId });
+      const response = await fetch(`/api/admin/point-reasons?${params.toString()}`, {
+        method: "DELETE",
+        headers,
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+        setReasons((currentReasons) =>
+          currentReasons.filter((currentReason) => !deletedIds.includes(currentReason.id))
+        );
+        setCheckedReasonIds(new Set());
+        setMessage(payload?.error ?? "일부 포인트 사유를 삭제하지 못했습니다.");
+        setIsDeletingReasons(false);
+        return;
+      }
+
+      deletedIds.push(reason.id);
+    }
+
+    setReasons((currentReasons) =>
+      currentReasons.filter((currentReason) => !deletedIds.includes(currentReason.id))
+    );
+    setCheckedReasonIds(new Set());
+    setMessage(`포인트 사유 ${deletedIds.length}개를 삭제했습니다.`);
+    setIsDeletingReasons(false);
+  };
+
+  const handleMoveReason = async (reasonIndex: number, direction: -1 | 1) => {
+    const targetIndex = reasonIndex + direction;
+
+    if (targetIndex < 0 || targetIndex >= reasons.length || isReordering) {
+      return;
+    }
+
+    const reorderedReasons = [...reasons];
+    [reorderedReasons[reasonIndex], reorderedReasons[targetIndex]] = [
+      reorderedReasons[targetIndex],
+      reorderedReasons[reasonIndex],
+    ];
+
+    setIsReordering(true);
+    setMessage("");
+    const headers = await getHeaders();
+    const response = await fetch("/api/admin/point-reasons", {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({
+        departmentId,
+        orderedIds: reorderedReasons.map((reason) => reason.id),
+      }),
+    });
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      setMessage(payload?.error ?? "포인트 사유 순서를 변경하지 못했습니다.");
+      setIsReordering(false);
+      return;
+    }
+
+    setReasons(
+      reorderedReasons.map((reason, sortOrder) => ({
+        ...reason,
+        sortOrder,
+      }))
+    );
+    setMessage("포인트 사유 순서를 변경했습니다.");
+    setIsReordering(false);
+  };
+
+  return (
+    <section className="mt-8 overflow-hidden rounded-2xl bg-white shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
+        <div>
+          <p className="text-sm font-black text-slate-500">포인트 사유 관리</p>
+          <p className="mt-1 text-xs font-bold text-slate-400">
+            사유별 기본 지급 포인트를 설정할 수 있습니다.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setMessage("");
+              setNewReasonName("");
+              setNewReasonPoints("");
+              setIsAddModalOpen(true);
+            }}
+            className="rounded-xl bg-blue-600 px-4 py-3 text-xs font-black text-white hover:bg-blue-700"
+          >
+            포인트 사유 추가
+          </button>
+          <button
+            type="button"
+            disabled={!deletableCheckedReasons.length || isDeletingReasons}
+            onClick={handleDeleteCheckedReasons}
+            className="rounded-xl bg-rose-600 px-4 py-3 text-xs font-black text-white hover:bg-rose-700 disabled:bg-slate-200 disabled:text-slate-400"
+          >
+            {isDeletingReasons ? "삭제 중" : "포인트 사유 삭제"}
+          </button>
+        </div>
+      </div>
+
+      {message && (
+        <div className="mx-5 mt-5 rounded-xl bg-blue-50 px-4 py-3 text-sm font-bold text-blue-700">
+          {message}
+        </div>
+      )}
+
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[760px] text-left text-sm">
+          <thead className="bg-slate-50 text-xs font-black text-slate-500">
+            <tr>
+              <th className="w-16 px-5 py-3">선택</th>
+              <th className="px-5 py-3">포인트 사유 이름</th>
+              <th className="px-5 py-3">포인트 값</th>
+              <th className="px-5 py-3">관리</th>
+              <th className="w-28 px-5 py-3 text-center">순서</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {reasons.map((reason, reasonIndex) => {
+              const isEditing = editingReasonId === reason.id;
+              const isRequiredReason = REQUIRED_POINT_REASONS.includes(
+                reason.label as (typeof REQUIRED_POINT_REASONS)[number]
+              );
+
+              return (
+                <tr key={reason.id} className="hover:bg-slate-50">
+                  <td className="px-5 py-4">
+                    <input
+                      type="checkbox"
+                      checked={checkedReasonIds.has(reason.id)}
+                      disabled={isRequiredReason || isDeletingReasons}
+                      onChange={(event) => handleReasonCheck(reason.id, event.target.checked)}
+                      title={isRequiredReason ? "기본 사유는 삭제할 수 없습니다." : undefined}
+                      className="h-4 w-4 disabled:cursor-not-allowed disabled:opacity-30"
+                      aria-label={`${reason.label} 선택`}
+                    />
+                  </td>
+                  <td className="px-5 py-4 font-black text-slate-800">{reason.label}</td>
+                  <td className="px-5 py-4">
+                    {isEditing ? (
+                      <div className="w-52">
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={editingPoints}
+                          onChange={(event) => setEditingPoints(event.target.value.replace(/\D/g, ""))}
+                          className="w-full rounded-xl border border-blue-300 bg-white px-4 py-3 font-bold outline-none focus:border-blue-500"
+                          placeholder="미지정"
+                        />
+                        <p className="mt-2 text-xs font-black text-blue-600">
+                          적용 값: {((Number(editingPoints) || 0) * 1000).toLocaleString()} DP
+                        </p>
+                      </div>
+                    ) : (
+                      <span className="font-bold text-slate-600">
+                        {reason.defaultPoints === null
+                          ? "미지정"
+                          : `${reason.defaultPoints.toLocaleString()} DP`}
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-5 py-4">
+                    <div className="flex gap-2">
+                      {isEditing ? (
+                        <>
+                          <button
+                            type="button"
+                            disabled={isSaving}
+                            onClick={handleEditConfirm}
+                            className="rounded-xl bg-blue-600 px-4 py-3 text-xs font-black text-white hover:bg-blue-700 disabled:bg-slate-300"
+                          >
+                            {isSaving ? "수정 중" : "확인"}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isSaving}
+                            onClick={() => {
+                              setEditingReasonId("");
+                              setEditingPoints("");
+                            }}
+                            className="rounded-xl bg-slate-100 px-4 py-3 text-xs font-black text-slate-600 hover:bg-slate-200"
+                          >
+                            취소
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleEditStart(reason)}
+                          className="rounded-xl bg-slate-100 px-4 py-3 text-xs font-black text-slate-700 hover:bg-slate-200"
+                        >
+                          수정
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-5 py-4">
+                    <div className="flex justify-center gap-2">
+                      <button
+                        type="button"
+                        disabled={reasonIndex === 0 || isReordering}
+                        onClick={() => handleMoveReason(reasonIndex, -1)}
+                        title="위로 이동"
+                        aria-label={`${reason.label} 위로 이동`}
+                        className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-100 text-base font-black text-slate-700 hover:bg-slate-200 disabled:cursor-not-allowed disabled:text-slate-300"
+                      >
+                        ↑
+                      </button>
+                      <button
+                        type="button"
+                        disabled={reasonIndex === reasons.length - 1 || isReordering}
+                        onClick={() => handleMoveReason(reasonIndex, 1)}
+                        title="아래로 이동"
+                        aria-label={`${reason.label} 아래로 이동`}
+                        className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-100 text-base font-black text-slate-700 hover:bg-slate-200 disabled:cursor-not-allowed disabled:text-slate-300"
+                      >
+                        ↓
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+            {isLoading && (
+              <tr>
+                <td colSpan={5} className="px-5 py-12 text-center font-bold text-slate-400">
+                  포인트 사유를 불러오는 중입니다.
+                </td>
+              </tr>
+            )}
+            {!isLoading && !reasons.length && (
+              <tr>
+                <td colSpan={5} className="px-5 py-12 text-center font-bold text-slate-400">
+                  등록된 포인트 사유가 없습니다.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {isAddModalOpen && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/40 p-6">
+          <section className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+            <h3 className="text-xl font-black text-slate-900">포인트 사유 추가</h3>
+            <label className="mt-5 block">
+              <span className="text-sm font-bold text-slate-600">포인트 사유 이름</span>
+              <input
+                type="text"
+                value={newReasonName}
+                onChange={(event) => setNewReasonName(event.target.value)}
+                className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-bold outline-none focus:border-blue-400 focus:bg-white"
+                placeholder="추가할 포인트 사유를 입력하세요"
+              />
+            </label>
+            <label className="mt-4 block">
+              <span className="text-sm font-bold text-slate-600">지급 포인트 값</span>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={newReasonPoints}
+                onChange={(event) => setNewReasonPoints(event.target.value.replace(/\D/g, ""))}
+                className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-bold outline-none focus:border-blue-400 focus:bg-white"
+                placeholder="예: 5"
+              />
+              <p className="mt-2 rounded-xl bg-blue-50 px-4 py-3 text-sm font-black text-blue-700">
+                등록 포인트: {((Number(newReasonPoints) || 0) * 1000).toLocaleString()} DP
+              </p>
+            </label>
+            {message && (
+              <p className="mt-3 rounded-xl bg-rose-50 px-4 py-3 text-sm font-bold text-rose-600">
+                {message}
+              </p>
+            )}
+            <div className="mt-5 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                disabled={isSaving || !newReasonName.trim() || !newReasonPoints}
+                onClick={handleAddReason}
+                className="rounded-xl bg-blue-600 px-4 py-3 text-sm font-black text-white hover:bg-blue-700 disabled:bg-slate-300"
+              >
+                {isSaving ? "추가 중" : "추가"}
+              </button>
+              <button
+                type="button"
+                disabled={isSaving}
+                onClick={() => setIsAddModalOpen(false)}
+                className="rounded-xl bg-slate-100 px-4 py-3 text-sm font-black text-slate-600 hover:bg-slate-200"
+              >
+                취소
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+    </section>
   );
 }
 

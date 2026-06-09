@@ -68,13 +68,19 @@ const announcementTypeLabels: Record<LobbyAnnouncement["type"], string> = {
   award: "수상",
 };
 
+const SELECTED_DEPARTMENT_STORAGE_KEY = "point-shop:selected-department-id";
+
 export default function LobbyPage() {
   const [phone, setPhone] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [studentChoices, setStudentChoices] = useState<LoginStudent[]>([]);
   const [errorMessage, setErrorMessage] = useState("");
   const [departments, setDepartments] = useState<DepartmentOption[]>([]);
-  const [selectedDepartmentId, setSelectedDepartmentId] = useState("");
+  const [selectedDepartmentId, setSelectedDepartmentId] = useState(() =>
+    typeof window === "undefined"
+      ? ""
+      : window.localStorage.getItem(SELECTED_DEPARTMENT_STORAGE_KEY) ?? ""
+  );
   const [rankingRows, setRankingRows] = useState<LobbyRankings["rankings"]>({
     honor: [],
     assets: [],
@@ -93,6 +99,14 @@ export default function LobbyPage() {
     departments.find((department) => department.id === selectedDepartmentId)?.name ?? "";
 
   const formatPhone = (value: string) => value.replace(/\D/g, "").slice(0, 8);
+
+  useEffect(() => {
+    if (!selectedDepartmentId) {
+      return;
+    }
+
+    window.localStorage.setItem(SELECTED_DEPARTMENT_STORAGE_KEY, selectedDepartmentId);
+  }, [selectedDepartmentId]);
 
   useEffect(() => {
     let isMounted = true;
@@ -253,8 +267,8 @@ export default function LobbyPage() {
   };
 
   return (
-    <main className="relative flex min-h-screen flex-col items-center justify-center gap-4 bg-slate-100 px-4 pb-4 pt-24 xl:flex-row xl:items-center xl:gap-5 xl:px-6 xl:pb-6 xl:pt-20">
-      <div className="absolute left-6 top-6 flex items-center gap-3 rounded-2xl bg-white px-4 py-3 shadow-sm">
+    <main className="relative flex min-h-screen flex-col items-center justify-center gap-4 bg-slate-100 px-4 pb-6 pt-28 xl:flex-row xl:items-center xl:gap-6 xl:px-10 xl:pb-10 xl:pt-24">
+      <div className="absolute left-5 top-5 flex items-center gap-3 rounded-2xl bg-white px-4 py-3 shadow-sm xl:left-10 xl:top-8">
         <label htmlFor="department-select" className="text-sm font-black text-slate-500">
           가맹점
         </label>
@@ -279,12 +293,12 @@ export default function LobbyPage() {
 
       <Link
         href="/admin"
-        className="absolute right-6 top-6 rounded-2xl bg-white px-5 py-3 text-sm font-black text-slate-500 shadow-sm transition hover:bg-blue-600 hover:text-white"
+        className="absolute right-5 top-5 rounded-xl border border-blue-500 bg-white px-5 py-3 text-sm font-black text-blue-600 transition hover:bg-blue-600 hover:text-white xl:right-10 xl:top-8"
       >
         관리자
       </Link>
 
-      <section className="w-full max-w-xs overflow-hidden rounded-2xl border-t-4 border-amber-400 bg-white shadow-md xl:w-[250px]">
+      <section className="w-full max-w-xs overflow-hidden rounded-2xl border border-slate-200 border-t-4 border-amber-400 bg-white shadow-md xl:w-[250px]">
         <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
           <div className="min-w-0">
             <p className="text-xs font-black text-amber-600">{selectedDepartmentName || "가맹점"} 공지</p>
@@ -346,7 +360,7 @@ export default function LobbyPage() {
 
       <section className="flex w-full max-w-sm flex-col gap-3 xl:w-[320px]">
         {rankingPanels.map((panel) => (
-          <div key={panel.id} className={`rounded-2xl border-t-4 ${panel.borderClass} bg-white p-4 shadow-md`}>
+          <div key={panel.id} className={`rounded-2xl border border-slate-200 border-t-4 ${panel.borderClass} bg-white p-4 shadow-md`}>
             <h2 className="mb-3 text-center text-lg font-bold text-gray-800">
               {panel.title}
             </h2>
@@ -383,7 +397,8 @@ export default function LobbyPage() {
         ))}
       </section>
 
-      <section className="flex w-full max-w-xl flex-col items-center rounded-3xl bg-white p-6 shadow-xl xl:w-[520px]">
+      <section className="flex w-full max-w-xl flex-col items-center rounded-3xl border border-slate-200 bg-white p-6 shadow-xl xl:w-[520px]">
+        <p className="mb-2 text-xs font-black text-orange-600">POINT SYSTEM</p>
         <h1 className="mb-2 text-3xl font-bold text-blue-600">학생 포인트 시스템</h1>
         <p className="mb-6 text-sm text-gray-500">학부모 전화번호 뒷자리를 입력해주세요</p>
 
@@ -455,7 +470,7 @@ export default function LobbyPage() {
             <button
               onClick={handleSubmit}
               disabled={isSubmitting}
-              className="h-20 w-20 rounded-2xl bg-blue-600 text-xl font-bold text-white shadow-sm transition-all hover:bg-blue-700 active:scale-95 active:bg-blue-800"
+              className="h-20 w-20 rounded-2xl bg-orange-600 text-xl font-bold text-white shadow-sm transition-all hover:bg-orange-700 active:scale-95 active:bg-blue-800"
             >
               {isSubmitting ? "..." : "완료"}
             </button>

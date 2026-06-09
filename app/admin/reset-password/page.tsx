@@ -54,8 +54,8 @@ export default function AdminResetPasswordPage() {
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-slate-100 p-6">
-      <section className="w-full max-w-md rounded-3xl bg-white p-8 shadow-xl">
-        <p className="text-sm font-black text-blue-600">POINT SYSTEM</p>
+      <section className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-8 shadow-xl">
+        <p className="text-sm font-black text-orange-600">POINT SYSTEM</p>
         <h1 className="mt-2 text-3xl font-black text-slate-900">비밀번호 재설정</h1>
         {message && (
           <div className="mt-6 rounded-2xl bg-blue-50 px-4 py-3 text-sm font-bold text-blue-700">
