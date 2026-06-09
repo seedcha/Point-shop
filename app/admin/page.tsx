@@ -390,16 +390,6 @@ export default function AdminPage() {
   const [teacherEditPassword, setTeacherEditPassword] = useState("");
   const [isLoadingTeachers, setIsLoadingTeachers] = useState(false);
   const [isSavingTeacher, setIsSavingTeacher] = useState(false);
-  const [announcementMode, setAnnouncementMode] = useState<"create" | "edit">("create");
-  const [announcementOrder, setAnnouncementOrder] = useState<"latest" | "oldest">("latest");
-  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
-  const [announcementContent, setAnnouncementContent] = useState("");
-  const [editingAnnouncementId, setEditingAnnouncementId] = useState<string | null>(null);
-  const [editingAnnouncementContent, setEditingAnnouncementContent] = useState("");
-  const [isSavingAnnouncement, setIsSavingAnnouncement] = useState(false);
-  const [isLoadingAnnouncements, setIsLoadingAnnouncements] = useState(false);
-  const [deletingAnnouncementId, setDeletingAnnouncementId] = useState<string | null>(null);
-
   const departmentNameById = useMemo(() => {
     return new Map(departments.map((department) => [department.id, department.name]));
   }, [departments]);
@@ -410,6 +400,8 @@ export default function AdminPage() {
     (session?.role === "master" || session?.role === "manager") && hasSelectedFranchise;
   const canManageFranchises = session?.role === "master";
   const canMutateFranchises = session?.role === "master";
+  const canOpenAnnouncements =
+    session?.role === "manager" || (session?.role === "master" && hasSelectedFranchise);
   const scopeLabel =
     session?.role === "master"
       ? selectedFranchiseId
@@ -426,10 +418,10 @@ export default function AdminPage() {
         { id: "students" as const, label: "학생 관리", allowed: session?.role !== "master" || hasSelectedFranchise },
         { id: "teachers" as const, label: "강사 관리", allowed: canManageTeachers },
         { id: "shop" as const, label: "상점 관리", allowed: canUseShop },
-        { id: "announcements" as const, label: "공지 관리", allowed: canMutateFranchises },
         { id: "purchaseRequests" as const, label: "구매 신청 관리", allowed: canUseShop },
+        { id: "announcements" as const, label: "공지 관리", allowed: canOpenAnnouncements },
       ].filter((item) => item.allowed),
-    [canManageFranchises, canManageTeachers, canMutateFranchises, canUseShop, hasSelectedFranchise, session?.role]
+    [canManageFranchises, canManageTeachers, canOpenAnnouncements, canUseShop, hasSelectedFranchise, session?.role]
   );
 
   const scopedStudents = useMemo(() => {
@@ -598,29 +590,6 @@ export default function AdminPage() {
     setSelectedFranchiseId(payload.selectedDepartment?.id ?? "");
     setSelectedFranchiseTeacherId(payload.selectedTeacher?.id ?? "");
     setIsLoadingFranchiseSummary(false);
-  };
-
-  const loadAnnouncements = async (order = announcementOrder) => {
-    setIsLoadingAnnouncements(true);
-    setDataMessage("");
-
-    const { data: sessionData } = await supabase.auth.getSession();
-    const response = await fetch(`/api/admin/announcements?order=${order}`, {
-      headers: {
-        Authorization: `Bearer ${sessionData.session?.access_token ?? ""}`,
-      },
-    });
-
-    if (!response.ok) {
-      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-      setDataMessage(payload?.error ?? "공지를 불러오지 못했습니다.");
-      setIsLoadingAnnouncements(false);
-      return;
-    }
-
-    const payload = (await response.json()) as { announcements?: Announcement[] };
-    setAnnouncements(payload.announcements ?? []);
-    setIsLoadingAnnouncements(false);
   };
 
   const loadPurchaseRequests = async () => {
@@ -1736,103 +1705,6 @@ export default function AdminPage() {
     });
   };
 
-  const resetAnnouncementDraft = () => {
-    setAnnouncementContent("");
-    setEditingAnnouncementId(null);
-    setEditingAnnouncementContent("");
-  };
-
-  const handleCreateAnnouncement = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-
-    if (!announcementContent.trim()) {
-      setDataMessage("공지 내용을 입력해주세요.");
-      return;
-    }
-
-    setIsSavingAnnouncement(true);
-    setDataMessage("");
-
-    const { data: sessionData } = await supabase.auth.getSession();
-    const response = await fetch("/api/admin/announcements", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${sessionData.session?.access_token ?? ""}`,
-      },
-      body: JSON.stringify({ content: announcementContent }),
-    });
-
-    if (!response.ok) {
-      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-      setDataMessage(payload?.error ?? "공지를 저장하지 못했습니다.");
-      setIsSavingAnnouncement(false);
-      return;
-    }
-
-    setAnnouncementContent("");
-    setDataMessage("공지를 등록했습니다.");
-    setIsSavingAnnouncement(false);
-    await loadAnnouncements();
-  };
-
-  const handleUpdateAnnouncement = async (announcementId: string) => {
-    if (!editingAnnouncementContent.trim()) {
-      setDataMessage("공지 내용을 입력해주세요.");
-      return;
-    }
-
-    setIsSavingAnnouncement(true);
-    setDataMessage("");
-
-    const { data: sessionData } = await supabase.auth.getSession();
-    const response = await fetch("/api/admin/announcements", {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${sessionData.session?.access_token ?? ""}`,
-      },
-      body: JSON.stringify({ id: announcementId, content: editingAnnouncementContent }),
-    });
-
-    if (!response.ok) {
-      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-      setDataMessage(payload?.error ?? "공지를 수정하지 못했습니다.");
-      setIsSavingAnnouncement(false);
-      return;
-    }
-
-    setEditingAnnouncementId(null);
-    setEditingAnnouncementContent("");
-    setDataMessage("공지를 수정했습니다.");
-    setIsSavingAnnouncement(false);
-    await loadAnnouncements();
-  };
-
-  const handleDeleteAnnouncement = async (announcementId: string) => {
-    setDeletingAnnouncementId(announcementId);
-    setDataMessage("");
-
-    const { data: sessionData } = await supabase.auth.getSession();
-    const response = await fetch(`/api/admin/announcements?id=${announcementId}`, {
-      method: "DELETE",
-      headers: {
-        Authorization: `Bearer ${sessionData.session?.access_token ?? ""}`,
-      },
-    });
-
-    if (!response.ok) {
-      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-      setDataMessage(payload?.error ?? "공지를 삭제하지 못했습니다.");
-      setDeletingAnnouncementId(null);
-      return;
-    }
-
-    setDeletingAnnouncementId(null);
-    setDataMessage("공지를 삭제했습니다.");
-    await loadAnnouncements();
-  };
-
   const handlePointAdjustment = async () => {
     if (!session || !selectedStudent) {
       return;
@@ -2200,7 +2072,7 @@ export default function AdminPage() {
 
           <nav className="mt-6 space-y-2">
             {navItems.map((item) => {
-              const isFranchiseChild = ["students", "teachers", "shop", "purchaseRequests"].includes(item.id);
+              const isFranchiseChild = ["students", "teachers", "shop", "purchaseRequests", "announcements"].includes(item.id);
               const franchiseChildLabel =
                 isFranchiseChild && selectedFranchiseId
                   ? `${item.label} (${departmentNameById.get(selectedFranchiseId) ?? "선택 가맹점"})`
@@ -2210,10 +2082,6 @@ export default function AdminPage() {
               <button
                 key={item.id}
 	              onClick={async () => {
-                  if (item.id !== "announcements") {
-                    resetAnnouncementDraft();
-                  }
-
                   setActiveView(item.id);
 
                   if (item.id === "departments") {
@@ -2234,9 +2102,6 @@ export default function AdminPage() {
                     await loadPurchaseRequests();
                   }
 
-                  if (item.id === "announcements") {
-                    await loadAnnouncements();
-                  }
                 }}
                 className={`w-full rounded-xl px-4 py-3 text-left text-sm font-black transition ${
                   activeView === item.id
@@ -2486,35 +2351,13 @@ export default function AdminPage() {
                 onAddTeacher={handleAddTeacher}
 	              />
 		          ) : (
-		            <AnnouncementManagementView
-		              mode={announcementMode}
-		              order={announcementOrder}
-		              announcements={announcements}
-		              content={announcementContent}
-		              editingAnnouncementId={editingAnnouncementId}
-		              editingContent={editingAnnouncementContent}
-		              isSaving={isSavingAnnouncement}
-		              isLoading={isLoadingAnnouncements}
-		              deletingAnnouncementId={deletingAnnouncementId}
-		              onModeChange={setAnnouncementMode}
-		              onOrderChange={async (order) => {
-		                setAnnouncementOrder(order);
-		                await loadAnnouncements(order);
-		              }}
-		              onContentChange={setAnnouncementContent}
-		              onCreate={handleCreateAnnouncement}
-		              onEditStart={(announcement) => {
-		                setEditingAnnouncementId(announcement.id);
-		                setEditingAnnouncementContent(announcement.content);
-		              }}
-		              onEditingContentChange={setEditingAnnouncementContent}
-		              onEditCancel={() => {
-		                setEditingAnnouncementId(null);
-		                setEditingAnnouncementContent("");
-		              }}
-		              onUpdate={handleUpdateAnnouncement}
-		              onDelete={handleDeleteAnnouncement}
-		            />
+		            <ManagerAnnouncementDraftView
+                  departmentId={
+                    session.role === "master"
+                      ? selectedFranchiseId
+                      : session.departmentId ?? ""
+                  }
+                />
 		          )}
         </section>
       </div>
@@ -4605,6 +4448,550 @@ function AnnouncementManagementView({
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+type ManagerNoticeType = "contest" | "vacation" | "award";
+type ManagerAwardStudent = {
+  id: string;
+  studentName: string;
+  awardName: string;
+};
+type ManagerNoticeDraft = {
+  id: string;
+  type: ManagerNoticeType;
+  title: string;
+  startDate: string;
+  endDate: string;
+  details: string;
+  awardStudents: ManagerAwardStudent[];
+};
+
+const MANAGER_NOTICE_TYPE_LABELS: Record<ManagerNoticeType, string> = {
+  contest: "대회",
+  vacation: "방학",
+  award: "수상",
+};
+
+function createEmptyManagerNotice(type: ManagerNoticeType = "contest"): ManagerNoticeDraft {
+  return {
+    id: "",
+    type,
+    title: "",
+    startDate: "",
+    endDate: "",
+    details: "",
+    awardStudents: [],
+  };
+}
+
+function getManagerNoticeLabels(type: ManagerNoticeType) {
+  if (type === "award") {
+    return { title: "수상 대회 이름", period: "공지 유지 기간" };
+  }
+
+  if (type === "vacation") {
+    return { title: "방학 이름", period: "방학 공지 기간" };
+  }
+
+  return { title: "대회 이름", period: "대회 공지 기간" };
+}
+
+function ManagerAnnouncementDraftView({ departmentId }: { departmentId: string }) {
+  const [activeTab, setActiveTab] = useState<"manage" | "create">("manage");
+  const [notices, setNotices] = useState<ManagerNoticeDraft[]>([]);
+  const [draft, setDraft] = useState<ManagerNoticeDraft>(() => createEmptyManagerNotice());
+  const [editingNoticeId, setEditingNoticeId] = useState("");
+  const [editingDraft, setEditingDraft] = useState<ManagerNoticeDraft | null>(null);
+  const [isLoadingNotices, setIsLoadingNotices] = useState(true);
+  const [isSavingNotice, setIsSavingNotice] = useState(false);
+  const [deletingNoticeId, setDeletingNoticeId] = useState("");
+  const [noticeMessage, setNoticeMessage] = useState("");
+
+  const getNoticeRequestHeaders = async () => {
+    const { data: sessionData } = await supabase.auth.getSession();
+
+    return {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${sessionData.session?.access_token ?? ""}`,
+    };
+  };
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadNotices() {
+      setIsLoadingNotices(true);
+      setNotices([]);
+      setEditingNoticeId("");
+      setEditingDraft(null);
+      setNoticeMessage("");
+      const headers = await getNoticeRequestHeaders();
+      const params = new URLSearchParams({ departmentId });
+      const response = await fetch(`/api/admin/home-announcements?${params.toString()}`, { headers });
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+        setNoticeMessage(payload?.error ?? "공지를 불러오지 못했습니다.");
+        setIsLoadingNotices(false);
+        return;
+      }
+
+      const payload = (await response.json()) as { announcements?: ManagerNoticeDraft[] };
+      setNotices(payload.announcements ?? []);
+      setIsLoadingNotices(false);
+    }
+
+    loadNotices();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [departmentId]);
+
+  const resetDraft = (type: ManagerNoticeType = "contest") => {
+    setDraft(createEmptyManagerNotice(type));
+  };
+
+  const updateDraft = (
+    currentDraft: ManagerNoticeDraft,
+    updater: Partial<ManagerNoticeDraft>
+  ) => ({ ...currentDraft, ...updater });
+
+  const handleNoticeTypeChange = (
+    nextType: ManagerNoticeType,
+    target: ManagerNoticeDraft,
+    onChange: (nextDraft: ManagerNoticeDraft) => void
+  ) => {
+    onChange({
+      ...target,
+      type: nextType,
+      title: "",
+      startDate: "",
+      endDate: "",
+      details: "",
+      awardStudents: [],
+    });
+  };
+
+  const handleAwardStudentChange = (
+    target: ManagerNoticeDraft,
+    onChange: (nextDraft: ManagerNoticeDraft) => void,
+    studentId: string,
+    field: "studentName" | "awardName",
+    value: string
+  ) => {
+    onChange({
+      ...target,
+      awardStudents: target.awardStudents.map((student) =>
+        student.id === studentId ? { ...student, [field]: value } : student
+      ),
+    });
+  };
+
+  const handleAwardStudentAdd = (
+    target: ManagerNoticeDraft,
+    onChange: (nextDraft: ManagerNoticeDraft) => void
+  ) => {
+    onChange({
+      ...target,
+      awardStudents: [
+        ...target.awardStudents,
+        { id: `${Date.now()}-${target.awardStudents.length}`, studentName: "", awardName: "" },
+      ],
+    });
+  };
+
+  const handleAwardStudentRemove = (
+    target: ManagerNoticeDraft,
+    onChange: (nextDraft: ManagerNoticeDraft) => void,
+    studentId: string
+  ) => {
+    onChange({
+      ...target,
+      awardStudents: target.awardStudents.filter((student) => student.id !== studentId),
+    });
+  };
+
+  const handleCreateSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setIsSavingNotice(true);
+    setNoticeMessage("");
+
+    const headers = await getNoticeRequestHeaders();
+    const response = await fetch("/api/admin/home-announcements", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ ...draft, departmentId }),
+    });
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      setNoticeMessage(payload?.error ?? "공지를 저장하지 못했습니다.");
+      setIsSavingNotice(false);
+      return;
+    }
+
+    const payload = (await response.json()) as { announcement: ManagerNoticeDraft };
+    setNotices((currentNotices) => [payload.announcement, ...currentNotices]);
+    resetDraft(draft.type);
+    setActiveTab("manage");
+    setNoticeMessage("공지를 등록했습니다.");
+    setIsSavingNotice(false);
+  };
+
+  const handleEditStart = (notice: ManagerNoticeDraft) => {
+    setEditingNoticeId(notice.id);
+    setEditingDraft({
+      ...notice,
+      awardStudents: notice.awardStudents.map((student) => ({ ...student })),
+    });
+  };
+
+  const handleEditConfirm = async () => {
+    if (!editingDraft) {
+      return;
+    }
+
+    setIsSavingNotice(true);
+    setNoticeMessage("");
+
+    const headers = await getNoticeRequestHeaders();
+    const response = await fetch("/api/admin/home-announcements", {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ ...editingDraft, departmentId }),
+    });
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      setNoticeMessage(payload?.error ?? "공지를 수정하지 못했습니다.");
+      setIsSavingNotice(false);
+      return;
+    }
+
+    const payload = (await response.json()) as { announcement: ManagerNoticeDraft };
+    setNotices((currentNotices) =>
+      currentNotices.map((notice) =>
+        notice.id === payload.announcement.id ? payload.announcement : notice
+      )
+    );
+    setEditingNoticeId("");
+    setEditingDraft(null);
+    setNoticeMessage("공지를 수정했습니다.");
+    setIsSavingNotice(false);
+  };
+
+  const handleNoticeDelete = async (notice: ManagerNoticeDraft) => {
+    if (!window.confirm(`${notice.title} 공지를 삭제하시겠습니까?`)) {
+      return;
+    }
+
+    setDeletingNoticeId(notice.id);
+    setNoticeMessage("");
+
+    const headers = await getNoticeRequestHeaders();
+    const params = new URLSearchParams({ id: notice.id, departmentId });
+    const response = await fetch(`/api/admin/home-announcements?${params.toString()}`, {
+      method: "DELETE",
+      headers,
+    });
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      setNoticeMessage(payload?.error ?? "공지를 삭제하지 못했습니다.");
+      setDeletingNoticeId("");
+      return;
+    }
+
+    setNotices((currentNotices) =>
+      currentNotices.filter((currentNotice) => currentNotice.id !== notice.id)
+    );
+
+    if (editingNoticeId === notice.id) {
+      setEditingNoticeId("");
+      setEditingDraft(null);
+    }
+
+    setNoticeMessage("공지를 삭제했습니다.");
+    setDeletingNoticeId("");
+  };
+
+  const renderNoticeForm = (
+    formDraft: ManagerNoticeDraft,
+    onChange: (nextDraft: ManagerNoticeDraft) => void,
+    submitLabel?: string
+  ) => {
+    const labels = getManagerNoticeLabels(formDraft.type);
+    const isAward = formDraft.type === "award";
+
+    return (
+      <div className="grid gap-5">
+        <label className="block">
+          <span className="text-sm font-bold text-slate-600">공지 항목</span>
+          <select
+            value={formDraft.type}
+            onChange={(event) =>
+              handleNoticeTypeChange(event.target.value as ManagerNoticeType, formDraft, onChange)
+            }
+            className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold outline-none focus:border-blue-400 focus:bg-white"
+          >
+            <option value="contest">대회</option>
+            <option value="vacation">방학</option>
+            <option value="award">수상</option>
+          </select>
+        </label>
+
+        <label className="block">
+          <span className="text-sm font-bold text-slate-600">{labels.title}</span>
+          <input
+            type="text"
+            value={formDraft.title}
+            onChange={(event) => onChange(updateDraft(formDraft, { title: event.target.value }))}
+            className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold outline-none focus:border-blue-400 focus:bg-white"
+            placeholder={labels.title}
+          />
+        </label>
+
+        {isAward && (
+          <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <span className="text-sm font-bold text-slate-600">수상 학생 목록</span>
+              <button
+                type="button"
+                onClick={() => handleAwardStudentAdd(formDraft, onChange)}
+                className="rounded-xl bg-slate-900 px-4 py-3 text-sm font-black text-white hover:bg-slate-800"
+              >
+                학생 추가
+              </button>
+            </div>
+
+            <div className="mt-4 grid gap-3">
+              {formDraft.awardStudents.map((student) => (
+                <div key={student.id} className="grid gap-3 rounded-xl bg-white p-3 sm:grid-cols-[1fr_1fr_auto]">
+                  <input
+                    type="text"
+                    value={student.studentName}
+                    onChange={(event) =>
+                      handleAwardStudentChange(formDraft, onChange, student.id, "studentName", event.target.value)
+                    }
+                    className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold outline-none focus:border-blue-400 focus:bg-white"
+                    placeholder="학생 이름"
+                  />
+                  <input
+                    type="text"
+                    value={student.awardName}
+                    onChange={(event) =>
+                      handleAwardStudentChange(formDraft, onChange, student.id, "awardName", event.target.value)
+                    }
+                    className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold outline-none focus:border-blue-400 focus:bg-white"
+                    placeholder="학생 상 이름"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleAwardStudentRemove(formDraft, onChange, student.id)}
+                    className="rounded-xl bg-rose-50 px-4 py-3 text-sm font-black text-rose-600 hover:bg-rose-100"
+                  >
+                    제거
+                  </button>
+                </div>
+              ))}
+
+              {!formDraft.awardStudents.length && (
+                <p className="rounded-xl bg-white px-4 py-4 text-center text-sm font-bold text-slate-400">
+                  학생 추가 버튼으로 수상 학생을 추가하세요.
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
+        <div>
+          <span className="text-sm font-bold text-slate-600">{labels.period}</span>
+          <div className="mt-2 grid gap-3 sm:grid-cols-2">
+            <label className="block">
+              <span className="text-xs font-black text-slate-400">시작 날짜</span>
+              <input
+                type="date"
+                value={formDraft.startDate}
+                onChange={(event) => onChange(updateDraft(formDraft, { startDate: event.target.value }))}
+                className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold outline-none focus:border-blue-400 focus:bg-white"
+              />
+            </label>
+            <label className="block">
+              <span className="text-xs font-black text-slate-400">종료 날짜</span>
+              <input
+                type="date"
+                value={formDraft.endDate}
+                onChange={(event) => onChange(updateDraft(formDraft, { endDate: event.target.value }))}
+                className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold outline-none focus:border-blue-400 focus:bg-white"
+              />
+            </label>
+          </div>
+        </div>
+
+        <label className="block">
+          <span className="text-sm font-bold text-slate-600">기타 추가 내용</span>
+          <textarea
+            value={formDraft.details}
+            onChange={(event) => onChange(updateDraft(formDraft, { details: event.target.value }))}
+            className="mt-2 min-h-44 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold outline-none focus:border-blue-400 focus:bg-white"
+            placeholder="추가 내용을 입력하세요"
+          />
+        </label>
+
+        {submitLabel && (
+          <div className="flex justify-end">
+            <button
+              type="submit"
+              disabled={isSavingNotice}
+              className="rounded-xl bg-blue-600 px-6 py-3 text-sm font-black text-white hover:bg-blue-700 disabled:bg-slate-300"
+            >
+              {isSavingNotice ? "저장 중" : submitLabel}
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <section className="mt-8 overflow-hidden rounded-2xl bg-white shadow-sm">
+      <div className="border-b border-slate-100 px-5 py-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-black text-slate-500">공지 관리</p>
+            <p className="mt-1 text-xs font-bold text-slate-400">{formatKoreaDate(new Date())}</p>
+          </div>
+          <div className="grid grid-cols-2 rounded-xl bg-slate-100 p-1">
+            <button
+              type="button"
+              onClick={() => setActiveTab("manage")}
+              className={`rounded-lg px-4 py-2 text-sm font-black ${
+                activeTab === "manage" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500"
+              }`}
+            >
+              공지 관리
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("create")}
+              className={`rounded-lg px-4 py-2 text-sm font-black ${
+                activeTab === "create" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500"
+              }`}
+            >
+              공지 추가
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {noticeMessage && (
+        <div className="mx-5 mt-5 rounded-xl bg-blue-50 px-4 py-3 text-sm font-bold text-blue-700">
+          {noticeMessage}
+        </div>
+      )}
+
+      {activeTab === "create" ? (
+        <form onSubmit={handleCreateSubmit} className="p-5">
+          {renderNoticeForm(draft, setDraft, "공지 올리기")}
+        </form>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[760px] text-left text-sm">
+            <thead className="bg-slate-50 text-xs font-black text-slate-500">
+              <tr>
+                <th className="px-5 py-3">공지 항목</th>
+                <th className="px-5 py-3">이름</th>
+                <th className="px-5 py-3">관리</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {notices.map((notice) => {
+                const isEditing = editingNoticeId === notice.id && editingDraft;
+
+                return (
+                  <Fragment key={notice.id}>
+                    <tr>
+                      <td className="px-5 py-4 font-black text-slate-700">
+                        {MANAGER_NOTICE_TYPE_LABELS[notice.type]}
+                      </td>
+                      <td className="px-5 py-4 font-bold text-slate-600">{notice.title || "-"}</td>
+                      <td className="px-5 py-4">
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleEditStart(notice)}
+                            className="rounded-xl bg-slate-100 px-4 py-3 text-xs font-black text-slate-700 hover:bg-slate-200"
+                          >
+                            수정
+                          </button>
+                          <button
+                            type="button"
+                            disabled={deletingNoticeId === notice.id}
+                            onClick={() => handleNoticeDelete(notice)}
+                            className="rounded-xl bg-rose-50 px-4 py-3 text-xs font-black text-rose-600 hover:bg-rose-100 disabled:text-rose-300"
+                          >
+                            {deletingNoticeId === notice.id ? "삭제 중" : "제거"}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                    {isEditing && (
+                      <tr>
+                        <td colSpan={3} className="bg-slate-50 px-5 py-5">
+                          <div className="grid gap-4">
+                            {renderNoticeForm(editingDraft, setEditingDraft)}
+                            <div className="flex justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingNoticeId("");
+                                  setEditingDraft(null);
+                                }}
+                                className="rounded-xl bg-white px-5 py-3 text-sm font-black text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50"
+                              >
+                                취소
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isSavingNotice}
+                                onClick={handleEditConfirm}
+                                className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-black text-white hover:bg-blue-700 disabled:bg-slate-300"
+                              >
+                                {isSavingNotice ? "수정 중" : "확인"}
+                              </button>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
+              {isLoadingNotices && (
+                <tr>
+                  <td colSpan={3} className="px-5 py-12 text-center font-bold text-slate-400">
+                    공지를 불러오는 중입니다.
+                  </td>
+                </tr>
+              )}
+              {!isLoadingNotices && !notices.length && (
+                <tr>
+                  <td colSpan={3} className="px-5 py-12 text-center font-bold text-slate-400">
+                    등록된 공지가 없습니다.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       )}
     </section>

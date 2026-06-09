@@ -24,6 +24,20 @@ type RankingRow = {
   points: number;
 };
 
+type LobbyAnnouncement = {
+  id: string;
+  type: "contest" | "vacation" | "award";
+  title: string;
+  startDate: string;
+  endDate: string;
+  details: string;
+  awardStudents: Array<{
+    id: string;
+    studentName: string;
+    awardName: string;
+  }>;
+};
+
 type LobbyRankings = {
   departments: DepartmentOption[];
   selectedDepartmentId: string | null;
@@ -48,6 +62,12 @@ const rankingPanelMeta = [
   },
 ] as const;
 
+const announcementTypeLabels: Record<LobbyAnnouncement["type"], string> = {
+  contest: "대회",
+  vacation: "방학",
+  award: "수상",
+};
+
 export default function LobbyPage() {
   const [phone, setPhone] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -59,12 +79,18 @@ export default function LobbyPage() {
     honor: [],
     assets: [],
   });
+  const [announcements, setAnnouncements] = useState<LobbyAnnouncement[]>([]);
+  const [activeAnnouncementIndex, setActiveAnnouncementIndex] = useState(0);
+  const [isLoadingAnnouncements, setIsLoadingAnnouncements] = useState(false);
   const [isLoadingRankings, setIsLoadingRankings] = useState(true);
   const router = useRouter();
   const rankingPanels = rankingPanelMeta.map((panel) => ({
     ...panel,
     rows: rankingRows[panel.id],
   }));
+  const activeAnnouncement = announcements[activeAnnouncementIndex] ?? null;
+  const selectedDepartmentName =
+    departments.find((department) => department.id === selectedDepartmentId)?.name ?? "";
 
   const formatPhone = (value: string) => value.replace(/\D/g, "").slice(0, 8);
 
@@ -109,6 +135,56 @@ export default function LobbyPage() {
       isMounted = false;
     };
   }, [selectedDepartmentId]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadAnnouncements() {
+      if (!selectedDepartmentId) {
+        setAnnouncements([]);
+        setActiveAnnouncementIndex(0);
+        return;
+      }
+
+      setIsLoadingAnnouncements(true);
+      setActiveAnnouncementIndex(0);
+
+      const params = new URLSearchParams({ departmentId: selectedDepartmentId });
+      const response = await fetch(`/api/lobby/announcements?${params.toString()}`);
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (!response.ok) {
+        setAnnouncements([]);
+        setIsLoadingAnnouncements(false);
+        return;
+      }
+
+      const payload = (await response.json()) as { announcements?: LobbyAnnouncement[] };
+      setAnnouncements(payload.announcements ?? []);
+      setIsLoadingAnnouncements(false);
+    }
+
+    loadAnnouncements();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedDepartmentId]);
+
+  useEffect(() => {
+    if (announcements.length < 2) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setActiveAnnouncementIndex((currentIndex) => (currentIndex + 1) % announcements.length);
+    }, 5000);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [activeAnnouncementIndex, announcements.length, selectedDepartmentId]);
 
   useEffect(() => {
     if (!errorMessage) {
@@ -177,7 +253,7 @@ export default function LobbyPage() {
   };
 
   return (
-    <main className="relative flex min-h-screen flex-row items-center justify-center gap-8 bg-slate-100 p-6">
+    <main className="relative flex min-h-screen flex-col items-center justify-center gap-4 bg-slate-100 px-4 pb-4 pt-24 xl:flex-row xl:items-center xl:gap-5 xl:px-6 xl:pb-6 xl:pt-20">
       <div className="absolute left-6 top-6 flex items-center gap-3 rounded-2xl bg-white px-4 py-3 shadow-sm">
         <label htmlFor="department-select" className="text-sm font-black text-slate-500">
           가맹점
@@ -208,7 +284,67 @@ export default function LobbyPage() {
         관리자
       </Link>
 
-      <section className="flex w-1/3 max-w-sm flex-col gap-3">
+      <section className="w-full max-w-xs overflow-hidden rounded-2xl border-t-4 border-amber-400 bg-white shadow-md xl:w-[250px]">
+        <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
+          <div className="min-w-0">
+            <p className="text-xs font-black text-amber-600">{selectedDepartmentName || "가맹점"} 공지</p>
+            <p className="mt-1 truncate text-sm font-black text-slate-800">
+              {isLoadingAnnouncements
+                ? "공지를 불러오는 중"
+                : activeAnnouncement?.title ?? "현재 표시할 공지가 없습니다"}
+            </p>
+          </div>
+          {activeAnnouncement && (
+            <span className="shrink-0 rounded-lg bg-amber-50 px-2 py-1 text-xs font-black text-amber-700">
+              {announcementTypeLabels[activeAnnouncement.type]}
+            </span>
+          )}
+        </div>
+
+        {activeAnnouncement && (
+          <div className="max-h-56 overflow-y-auto px-4 py-3">
+            <p className="text-xs font-bold text-slate-400">
+              {activeAnnouncement.startDate} ~ {activeAnnouncement.endDate}
+            </p>
+            {activeAnnouncement.details && (
+              <p className="mt-2 whitespace-pre-wrap text-xs font-bold leading-5 text-slate-600">
+                {activeAnnouncement.details}
+              </p>
+            )}
+            {activeAnnouncement.type === "award" && activeAnnouncement.awardStudents.length > 0 && (
+              <div className="mt-3 grid gap-2">
+                {activeAnnouncement.awardStudents.map((student) => (
+                  <div
+                    key={student.id}
+                    className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2 text-xs font-bold"
+                  >
+                    <span className="truncate text-slate-700">{student.studentName}</span>
+                    <span className="shrink-0 text-blue-600">{student.awardName}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {announcements.length > 1 && (
+          <div className="flex justify-center gap-2 border-t border-slate-100 px-4 py-2">
+            {announcements.map((announcement, index) => (
+              <button
+                key={announcement.id}
+                type="button"
+                aria-label={`${index + 1}번째 공지 보기`}
+                onClick={() => setActiveAnnouncementIndex(index)}
+                className={`h-2 w-2 rounded-full ${
+                  index === activeAnnouncementIndex ? "bg-amber-500" : "bg-slate-300"
+                }`}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="flex w-full max-w-sm flex-col gap-3 xl:w-[320px]">
         {rankingPanels.map((panel) => (
           <div key={panel.id} className={`rounded-2xl border-t-4 ${panel.borderClass} bg-white p-4 shadow-md`}>
             <h2 className="mb-3 text-center text-lg font-bold text-gray-800">
@@ -247,9 +383,9 @@ export default function LobbyPage() {
         ))}
       </section>
 
-      <section className="flex w-1/2 max-w-xl flex-col items-center rounded-3xl bg-white p-8 shadow-xl">
+      <section className="flex w-full max-w-xl flex-col items-center rounded-3xl bg-white p-6 shadow-xl xl:w-[520px]">
         <h1 className="mb-2 text-3xl font-bold text-blue-600">학생 포인트 시스템</h1>
-        <p className="mb-8 text-sm text-gray-500">학부모 전화번호 뒷자리를 입력해주세요</p>
+        <p className="mb-6 text-sm text-gray-500">학부모 전화번호 뒷자리를 입력해주세요</p>
 
         <div className="flex w-full flex-col items-center gap-8">
           {errorMessage && (
