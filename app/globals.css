@@ -298,6 +298,513 @@ table tbody tr:hover {
   background-color: var(--primary-soft) !important;
 }
 
+.competitive-lobby {
+  --hud-bg: #070a10;
+  --hud-surface: #101620;
+  --hud-surface-high: #18222e;
+  --hud-border: #344353;
+  --hud-cyan: #48d9ff;
+  --hud-orange: #ff7a1a;
+  --hud-gold: #f6c85f;
+  --hud-text: #f4f8fb;
+  --hud-muted: #8e9baa;
+  isolation: isolate;
+  color: var(--hud-text);
+  background:
+    linear-gradient(rgb(72 217 255 / 4%) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(72 217 255 / 4%) 1px, transparent 1px),
+    linear-gradient(135deg, #111c27 0%, var(--hud-bg) 44%, #05070b 100%) !important;
+  background-size: 48px 48px, 48px 48px, auto !important;
+}
+
+.competitive-lobby::before {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  content: "";
+  background:
+    linear-gradient(115deg, transparent 0 35%, rgb(72 217 255 / 5%) 35% 35.2%, transparent 35.2%),
+    linear-gradient(295deg, transparent 0 72%, rgb(255 122 26 / 5%) 72% 72.2%, transparent 72.2%);
+}
+
+.competitive-lobby .hud-panel,
+.competitive-lobby .hud-top-control {
+  border-color: var(--hud-border) !important;
+  border-radius: 6px !important;
+  color: var(--hud-text);
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 4%), transparent 34%),
+    linear-gradient(180deg, var(--hud-surface-high), var(--hud-surface)) !important;
+  box-shadow:
+    0 18px 40px rgb(0 0 0 / 42%),
+    inset 0 1px rgb(255 255 255 / 8%),
+    inset 0 -1px rgb(0 0 0 / 55%) !important;
+}
+
+.competitive-lobby .hud-panel {
+  position: relative;
+}
+
+.competitive-lobby .hud-panel::after,
+.competitive-lobby .hud-top-control::after {
+  position: absolute;
+  inset: 4px;
+  z-index: -1;
+  pointer-events: none;
+  content: "";
+  border: 1px solid rgb(255 255 255 / 3%);
+}
+
+.competitive-lobby .hud-top-control {
+  border-left: 3px solid var(--hud-cyan) !important;
+  box-shadow: 0 0 24px rgb(72 217 255 / 12%) !important;
+}
+
+.competitive-lobby .hud-label,
+.competitive-lobby .text-slate-500,
+.competitive-lobby .text-gray-500 {
+  color: var(--hud-muted) !important;
+}
+
+.competitive-lobby .hud-select {
+  border-color: #405267 !important;
+  border-radius: 3px !important;
+  color: var(--hud-text) !important;
+  background: #0b1119 !important;
+  box-shadow: inset 0 0 0 1px rgb(72 217 255 / 5%);
+}
+
+.competitive-lobby .hud-select:focus {
+  border-color: var(--hud-cyan) !important;
+  box-shadow: 0 0 0 2px rgb(72 217 255 / 15%), inset 0 0 12px rgb(72 217 255 / 8%);
+}
+
+.competitive-lobby .hud-admin-link {
+  border: 1px solid #4f6377 !important;
+  border-radius: 3px !important;
+  color: var(--hud-cyan) !important;
+  background: linear-gradient(180deg, #182431, #0d131b) !important;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 35%), inset 0 1px rgb(255 255 255 / 8%);
+}
+
+.competitive-lobby .hud-admin-link:hover {
+  border-color: var(--hud-cyan) !important;
+  color: #061018 !important;
+  background: var(--hud-cyan) !important;
+  box-shadow: 0 0 24px rgb(72 217 255 / 30%);
+}
+
+.competitive-lobby .hud-announcement {
+  border-top-color: var(--hud-orange) !important;
+  box-shadow:
+    0 18px 40px rgb(0 0 0 / 42%),
+    0 0 22px rgb(255 122 26 / 8%),
+    inset 0 1px rgb(255 255 255 / 8%) !important;
+}
+
+.competitive-lobby .hud-panel-header,
+.competitive-lobby .border-slate-100 {
+  border-color: rgb(110 135 158 / 20%) !important;
+}
+
+.competitive-lobby .hud-kicker {
+  color: var(--hud-orange) !important;
+  text-shadow: 0 0 12px rgb(255 122 26 / 42%);
+}
+
+.competitive-lobby .hud-title {
+  color: var(--hud-text) !important;
+  text-shadow: 0 0 22px rgb(72 217 255 / 22%);
+}
+
+.competitive-lobby .text-slate-800,
+.competitive-lobby .text-slate-900,
+.competitive-lobby .text-gray-800,
+.competitive-lobby .text-gray-700,
+.competitive-lobby .text-slate-700 {
+  color: var(--hud-text) !important;
+}
+
+.competitive-lobby .text-slate-400 {
+  color: var(--hud-muted) !important;
+}
+
+.competitive-lobby .text-blue-600 {
+  color: var(--hud-cyan) !important;
+}
+
+.competitive-lobby .hud-chip {
+  border: 1px solid rgb(246 200 95 / 45%);
+  border-radius: 3px !important;
+  color: var(--hud-gold) !important;
+  background: rgb(246 200 95 / 8%) !important;
+  box-shadow: inset 0 0 12px rgb(246 200 95 / 6%);
+}
+
+.competitive-lobby .hud-list-row {
+  border-left: 2px solid var(--hud-cyan);
+  background: rgb(72 217 255 / 5%) !important;
+}
+
+.competitive-lobby .hud-page-dot,
+.competitive-lobby .hud-ranking-tab {
+  border-radius: 1px !important;
+  background: #354252 !important;
+}
+
+.competitive-lobby .hud-page-dot.is-active {
+  background: var(--hud-orange) !important;
+  box-shadow: 0 0 10px rgb(255 122 26 / 85%);
+}
+
+.competitive-lobby .hud-ranking-tab.is-active {
+  background: var(--hud-cyan) !important;
+  box-shadow: 0 0 12px rgb(72 217 255 / 75%);
+}
+
+.competitive-lobby .hud-ranking-panel {
+  border-color: #3d5062 !important;
+}
+
+.competitive-lobby .hud-ranking-body {
+  border-left-color: var(--hud-cyan) !important;
+  background:
+    linear-gradient(90deg, rgb(72 217 255 / 5%), transparent 22%),
+    linear-gradient(180deg, rgb(255 255 255 / 2%), transparent);
+}
+
+.competitive-lobby .hud-ranking-body h2 {
+  color: var(--hud-text) !important;
+  text-shadow: 0 0 16px rgb(72 217 255 / 22%);
+}
+
+.competitive-lobby .hud-rank-row {
+  border-color: rgb(110 135 158 / 18%) !important;
+  color: #c4ced8 !important;
+  background: linear-gradient(90deg, rgb(255 255 255 / 3%), transparent);
+}
+
+.competitive-lobby .hud-rank-leader {
+  border: 1px solid rgb(246 200 95 / 42%);
+  color: #fff4c8 !important;
+  background:
+    linear-gradient(90deg, rgb(246 200 95 / 17%), rgb(246 200 95 / 4%)),
+    #151a20 !important;
+  box-shadow: inset 3px 0 var(--hud-gold), 0 0 18px rgb(246 200 95 / 9%);
+}
+
+.competitive-lobby .hud-empty {
+  border: 1px dashed #3d4d5e;
+  color: var(--hud-muted) !important;
+  background: rgb(5 9 14 / 48%) !important;
+}
+
+.competitive-lobby .hud-login-panel {
+  border-top: 2px solid var(--hud-cyan) !important;
+  border-bottom: 2px solid var(--hud-orange) !important;
+  box-shadow:
+    0 24px 70px rgb(0 0 0 / 55%),
+    0 0 32px rgb(72 217 255 / 10%),
+    inset 0 1px rgb(255 255 255 / 9%) !important;
+}
+
+.competitive-lobby .hud-phone-display {
+  border: 1px solid #33465a;
+  border-radius: 5px !important;
+  background:
+    linear-gradient(180deg, rgb(72 217 255 / 4%), transparent),
+    #080d14 !important;
+  box-shadow:
+    inset 0 8px 24px rgb(0 0 0 / 42%),
+    0 0 0 1px rgb(72 217 255 / 4%) !important;
+}
+
+.competitive-lobby .hud-phone-input {
+  border-color: #4b6175 !important;
+  color: var(--hud-cyan) !important;
+  background: transparent !important;
+  caret-color: var(--hud-cyan);
+  text-shadow: 0 0 14px rgb(72 217 255 / 35%);
+}
+
+.competitive-lobby .hud-phone-input:focus {
+  border-color: var(--hud-cyan) !important;
+  box-shadow: 0 8px 12px -12px var(--hud-cyan);
+}
+
+.competitive-lobby .hud-phone-input::placeholder {
+  color: #354554;
+}
+
+.competitive-lobby .hud-key {
+  border: 1px solid #405165;
+  border-radius: 5px !important;
+  color: #eaf5fb !important;
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 8%), transparent 45%),
+    linear-gradient(180deg, #1d2936, #101720) !important;
+  box-shadow:
+    0 8px 14px rgb(0 0 0 / 28%),
+    inset 0 1px rgb(255 255 255 / 10%),
+    inset 0 -2px rgb(0 0 0 / 48%) !important;
+}
+
+.competitive-lobby .hud-key:hover {
+  border-color: var(--hud-cyan);
+  color: var(--hud-cyan) !important;
+  background: linear-gradient(180deg, #23384a, #111c26) !important;
+  box-shadow: 0 0 18px rgb(72 217 255 / 15%), inset 0 1px rgb(255 255 255 / 12%) !important;
+}
+
+.competitive-lobby .hud-key-danger {
+  border-color: #7a3941;
+  color: #ff7d88 !important;
+  background: linear-gradient(180deg, #351b23, #1c1016) !important;
+}
+
+.competitive-lobby .hud-key-submit {
+  border-color: #ff9b4e;
+  color: #160b03 !important;
+  background: linear-gradient(180deg, #ff9b3d, var(--hud-orange)) !important;
+  box-shadow:
+    0 8px 20px rgb(255 122 26 / 22%),
+    inset 0 1px rgb(255 255 255 / 35%),
+    inset 0 -2px rgb(131 51 0 / 45%) !important;
+}
+
+.competitive-lobby .hud-key-submit:hover {
+  color: #05090d !important;
+  background: linear-gradient(180deg, #ffc06e, #ff8b2b) !important;
+  box-shadow: 0 0 24px rgb(255 122 26 / 35%) !important;
+}
+
+.competitive-lobby .hud-error {
+  border-color: #b94b56 !important;
+  color: #ff9da5 !important;
+  background: #2b1319 !important;
+}
+
+.competitive-lobby .hud-modal-backdrop {
+  background: rgb(2 5 8 / 78%) !important;
+  backdrop-filter: blur(12px);
+}
+
+.competitive-lobby .hud-modal {
+  border-top: 2px solid var(--hud-cyan) !important;
+}
+
+.competitive-lobby .hud-student-choice {
+  border: 1px solid #344658;
+  border-radius: 5px !important;
+  background: #0d141d !important;
+}
+
+.competitive-lobby .hud-student-choice:hover {
+  border-color: var(--hud-cyan);
+  background: rgb(72 217 255 / 7%) !important;
+  box-shadow: 0 0 18px rgb(72 217 255 / 10%);
+}
+
+.competitive-lobby .hud-secondary-button {
+  border: 1px solid #435468;
+  border-radius: 4px !important;
+  color: #c7d1db !important;
+  background: #151e28 !important;
+}
+
+.competitive-lobby .hud-secondary-button:hover {
+  border-color: var(--hud-cyan);
+  color: var(--hud-cyan) !important;
+  background: #1a2835 !important;
+}
+
+body .hud-ranking-panel {
+  --rank-navy: #24205d;
+  --rank-purple: #4a2f83;
+  --rank-gold: #e7ba59;
+  --rank-cream: #fffaf0;
+  --rank-ink: #272737;
+  position: relative;
+  border: 2px solid #b58a42 !important;
+  border-radius: 6px !important;
+  color: var(--rank-cream);
+  background:
+    linear-gradient(135deg, rgb(255 255 255 / 12%), transparent 25%),
+    linear-gradient(160deg, var(--rank-navy), var(--rank-purple)) !important;
+  box-shadow:
+    0 14px 30px rgb(65 42 112 / 18%),
+    inset 0 0 0 2px rgb(255 255 255 / 26%),
+    inset 0 0 28px rgb(230 186 88 / 10%) !important;
+}
+
+body .hud-ranking-panel::before,
+body .hud-ranking-panel::after {
+  position: absolute;
+  z-index: 1;
+  pointer-events: none;
+  color: #fff2ad;
+  content: "✦";
+  text-shadow: 0 0 8px rgb(255 238 153 / 85%);
+}
+
+body .hud-ranking-panel::before {
+  top: 12px;
+  right: 24px;
+  font-size: 16px;
+}
+
+body .hud-ranking-panel::after {
+  top: 28px;
+  right: 49px;
+  font-size: 8px;
+}
+
+body .hud-ranking-panel .hud-ranking-body {
+  position: relative;
+  z-index: 2;
+  border-left: 0 !important;
+  background:
+    radial-gradient(circle at 12% 0%, rgb(255 219 116 / 16%), transparent 28%),
+    transparent;
+}
+
+body .hud-ranking-panel .hud-ranking-body h2 {
+  gap: 8px;
+  color: #fff7d7 !important;
+  text-shadow: 0 2px 8px rgb(16 9 48 / 75%);
+}
+
+body .hud-ranking-panel .hud-ranking-trophy {
+  color: var(--rank-gold);
+  filter: drop-shadow(0 2px 4px rgb(18 9 51 / 55%));
+}
+
+body .hud-ranking-panel .hud-ranking-sparkle {
+  color: #fff0a6;
+  font-size: 12px;
+  text-shadow: 0 0 8px #fff0a6;
+}
+
+body .hud-ranking-panel ul {
+  gap: 0;
+  border: 1px solid rgb(255 255 255 / 70%);
+  border-radius: 6px;
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 94%), rgb(252 247 255 / 96%)) !important;
+  box-shadow:
+    0 5px 14px rgb(21 12 55 / 28%),
+    inset 0 0 18px rgb(107 68 153 / 7%);
+  scrollbar-color: #c8b5ec #eee6f7;
+  scrollbar-width: thin;
+}
+
+body .hud-ranking-panel .hud-rank-row {
+  min-height: 42px;
+  border-bottom: 1px solid #e3deeb !important;
+  color: var(--rank-ink) !important;
+  background: transparent;
+}
+
+body .hud-ranking-panel .hud-rank-row:last-child {
+  border-bottom: 0 !important;
+}
+
+body .hud-ranking-panel .hud-rank-row .text-slate-400 {
+  color: #85818f !important;
+}
+
+body .hud-ranking-panel .hud-rank-leader {
+  border: 1px solid #efbd50 !important;
+  background:
+    linear-gradient(90deg, #fff5cf, #ffffff 58%, #fff1c2) !important;
+  box-shadow:
+    inset 0 0 14px rgb(231 186 89 / 26%),
+    0 2px 8px rgb(119 73 14 / 17%);
+}
+
+body .hud-ranking-panel .hud-rank-leader .text-slate-400 {
+  color: #8d8270 !important;
+}
+
+body .hud-ranking-panel .hud-rank-name {
+  color: #292938;
+  font-weight: 900;
+}
+
+body .hud-ranking-panel .hud-rank-grade {
+  color: #898594 !important;
+  font-weight: 700;
+}
+
+body .hud-ranking-panel .hud-rank-points {
+  color: #263ca0;
+  font-weight: 900;
+}
+
+body .hud-ranking-panel .hud-rank-leader .hud-rank-points {
+  color: #e86b13;
+  text-shadow: 0 1px rgb(255 255 255 / 75%);
+}
+
+body .hud-ranking-panel .hud-rank-medal {
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: #423b6c;
+  font-size: 14px;
+  font-weight: 900;
+  background: #e7defa;
+  box-shadow: inset 0 -2px 4px rgb(70 43 122 / 16%);
+}
+
+body .hud-ranking-panel .hud-rank-medal-1 {
+  border: 2px solid #d89c22;
+  color: #744300;
+  background: linear-gradient(145deg, #fff6b7, #e9a82d 68%, #fff0a0);
+  box-shadow:
+    0 0 0 3px rgb(255 228 134 / 38%),
+    inset 0 1px 3px rgb(255 255 255 / 85%);
+}
+
+body .hud-ranking-panel .hud-rank-medal-2 {
+  border: 2px solid #9aa6b5;
+  color: #435064;
+  background: linear-gradient(145deg, #ffffff, #b8c4d2 70%, #eef3f7);
+  box-shadow: inset 0 1px 3px rgb(255 255 255 / 90%);
+}
+
+body .hud-ranking-panel .hud-rank-medal-3 {
+  border: 2px solid #b66b2c;
+  color: #65300f;
+  background: linear-gradient(145deg, #f7c18c, #bb6a2b 70%, #f0aa68);
+  box-shadow: inset 0 1px 3px rgb(255 255 255 / 65%);
+}
+
+body .hud-ranking-panel .hud-empty {
+  border: 1px dashed #c5b9d6;
+  color: #766e83 !important;
+  background: rgb(255 255 255 / 62%) !important;
+}
+
+body .hud-ranking-panel .hud-ranking-tab {
+  border-radius: 1px !important;
+  background: #ad9bc9 !important;
+}
+
+body .hud-ranking-panel .hud-ranking-tab.is-active {
+  background: #f0c45e !important;
+  box-shadow: 0 0 9px rgb(255 224 126 / 75%);
+}
+
+body .hud-ranking-panel > div:last-child {
+  border-color: rgb(255 255 255 / 22%) !important;
+}
+
 @media (max-width: 767px) {
   body {
     font-size: 14px;

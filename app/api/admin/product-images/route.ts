@@ -32,7 +32,7 @@ async function getAdminProfile(request: NextRequest) {
     .eq("is_active", true)
     .single<AdminProfile>();
 
-  if (profileError || !profile || !["master", "manager"].includes(profile.role)) {
+  if (profileError || !profile || !["master", "manager", "staff"].includes(profile.role)) {
     return { error: "상품 이미지 업로드 권한이 없습니다.", status: 403 as const };
   }
 

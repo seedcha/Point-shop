@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { createStudentSelectionToken } from "@/lib/student-session";
 
 function digitsOnly(value: string) {
   return value.replace(/\D/g, "");
@@ -17,7 +18,7 @@ export async function POST(request: NextRequest) {
 
   let query = supabaseAdmin
     .from("students")
-    .select("id, name, parent_phone, grade, points")
+    .select("id, department_id, name, parent_phone, grade, points")
     .eq("is_active", true);
 
   if (departmentId) {
@@ -39,5 +40,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "등록되지 않은 전화번호입니다." }, { status: 404 });
   }
 
-  return NextResponse.json({ students });
+  return NextResponse.json({
+    students: students.map((student) => ({
+      ...student,
+      selectionToken: createStudentSelectionToken(student.id, student.department_id),
+    })),
+  });
 }
