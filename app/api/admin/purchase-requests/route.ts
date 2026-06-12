@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
-type ManagerProfile = {
+type AdminProfile = {
   id: string;
   role: string;
   department_id: string | null;
@@ -37,7 +37,7 @@ type ProductRow = {
   image_url: string | null;
 };
 
-async function getManagerProfile(request: NextRequest) {
+async function getAdminProfile(request: NextRequest) {
   const authorization = request.headers.get("authorization");
   const token = authorization?.startsWith("Bearer ") ? authorization.slice(7) : null;
 
@@ -56,27 +56,50 @@ async function getManagerProfile(request: NextRequest) {
     .select("id, role, department_id")
     .eq("auth_user_id", userData.user.id)
     .eq("is_active", true)
-    .single<ManagerProfile>();
+    .single<AdminProfile>();
 
-  if (profileError || !profile || profile.role !== "manager") {
-    return { error: "매니저만 구매 신청을 관리할 수 있습니다.", status: 403 as const };
+  if (profileError || !profile || !["master", "manager", "staff"].includes(profile.role)) {
+    return { error: "구매 신청 관리 권한이 없습니다.", status: 403 as const };
   }
 
-  if (!profile.department_id) {
-    return { error: "매니저 가맹점 정보가 없습니다.", status: 400 as const };
+  if (profile.role !== "master" && !profile.department_id) {
+    return { error: "소속 가맹점 정보가 없습니다.", status: 400 as const };
   }
 
   return { profile };
 }
 
-export async function GET(request: NextRequest) {
-  const manager = await getManagerProfile(request);
+function resolveDepartmentId(
+  profile: AdminProfile,
+  requestedDepartmentId?: string | null
+) {
+  const departmentId =
+    profile.role === "master" ? requestedDepartmentId?.trim() : profile.department_id;
 
-  if ("error" in manager) {
-    return NextResponse.json({ error: manager.error }, { status: manager.status });
+  if (!departmentId) {
+    return { error: "가맹점을 먼저 선택해주세요." };
   }
 
-  const departmentId = manager.profile.department_id;
+  return { departmentId };
+}
+
+export async function GET(request: NextRequest) {
+  const admin = await getAdminProfile(request);
+
+  if ("error" in admin) {
+    return NextResponse.json({ error: admin.error }, { status: admin.status });
+  }
+
+  const scope = resolveDepartmentId(
+    admin.profile,
+    new URL(request.url).searchParams.get("departmentId")
+  );
+
+  if ("error" in scope) {
+    return NextResponse.json({ error: scope.error }, { status: 400 });
+  }
+
+  const departmentId = scope.departmentId;
 
   const { data: requests, error: requestError } = await supabaseAdmin
     .from("purchase_requests")
@@ -152,18 +175,25 @@ export async function GET(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
-  const manager = await getManagerProfile(request);
+  const admin = await getAdminProfile(request);
 
-  if ("error" in manager) {
-    return NextResponse.json({ error: manager.error }, { status: manager.status });
+  if ("error" in admin) {
+    return NextResponse.json({ error: admin.error }, { status: admin.status });
   }
 
   const body = (await request.json()) as {
     purchaseId?: string;
+    departmentId?: string;
     action?: "approve" | "reject";
   };
   const requestId = body.purchaseId?.trim();
-  const departmentId = manager.profile.department_id;
+  const scope = resolveDepartmentId(admin.profile, body.departmentId);
+
+  if ("error" in scope) {
+    return NextResponse.json({ error: scope.error }, { status: 400 });
+  }
+
+  const departmentId = scope.departmentId;
 
   if (!requestId || !body.action) {
     return NextResponse.json({ error: "구매 신청 정보를 확인해주세요." }, { status: 400 });
@@ -186,7 +216,7 @@ export async function PATCH(request: NextRequest) {
       .from("purchase_requests")
       .update({
         status: "rejected",
-        handled_by: manager.profile.id,
+        handled_by: admin.profile.id,
         handled_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
@@ -276,7 +306,7 @@ export async function PATCH(request: NextRequest) {
     .from("purchase_requests")
     .update({
       status: "approved",
-      handled_by: manager.profile.id,
+      handled_by: admin.profile.id,
       handled_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     })
@@ -294,7 +324,7 @@ export async function PATCH(request: NextRequest) {
     balance_after: balanceAfter,
     transaction_type: "purchase",
     reason: `${product.name} 구매`,
-    adjusted_by: manager.profile.id,
+    adjusted_by: admin.profile.id,
   });
 
   if (transactionError) {

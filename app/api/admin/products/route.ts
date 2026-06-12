@@ -34,8 +34,8 @@ async function getAdminProfile(request: NextRequest) {
     return { error: "활성화된 관리자 계정을 찾을 수 없습니다.", status: 403 as const };
   }
 
-  if (!["master", "manager"].includes(profile.role)) {
-    return { error: "상품 관리는 master 또는 manager만 사용할 수 있습니다.", status: 403 as const };
+  if (!["master", "manager", "staff"].includes(profile.role)) {
+    return { error: "상품 관리 권한이 없습니다.", status: 403 as const };
   }
 
   return { profile };

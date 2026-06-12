@@ -4,6 +4,7 @@ import Link from "next/link";
 import { ChangeEvent, FormEvent, Fragment, useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 
+import AchievementManagementView from "@/app/admin/AchievementManagementView";
 import { supabase } from "@/lib/supabase/client";
 
 type AdminRole = "master" | "manager" | "staff";
@@ -13,6 +14,7 @@ type AdminView =
   | "shop"
   | "purchaseRequests"
   | "pointReasons"
+  | "achievements"
   | "departments"
   | "announcements";
 
@@ -135,6 +137,15 @@ type PointReasonPreset = {
   label: string;
   defaultPoints: number | null;
   sortOrder: number;
+};
+
+type AchievementOption = {
+  id: string;
+  name: string;
+  rarity: "common" | "rare" | "heroic" | "legendary" | "mythic";
+  description: string;
+  imageUrl: string | null;
+  isAutomatic: boolean;
 };
 
 type TeacherTransaction = {
@@ -331,6 +342,7 @@ export default function AdminPage() {
   const [productStatusTab, setProductStatusTab] = useState<"active" | "inactive">("active");
   const [updatingProductStatusId, setUpdatingProductStatusId] = useState<string | null>(null);
   const [deletingProductId, setDeletingProductId] = useState<string | null>(null);
+  const [isBatchProcessingProducts, setIsBatchProcessingProducts] = useState(false);
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [dataMessage, setDataMessage] = useState("");
   const [toastMessage, setToastMessage] = useState("");
@@ -373,12 +385,15 @@ export default function AdminPage() {
   const [isMissingStudentModalOpen, setIsMissingStudentModalOpen] = useState(false);
   const [pointAmount, setPointAmount] = useState("");
   const [pointReason, setPointReason] = useState("포인트 조정");
+  const [attendanceStatus, setAttendanceStatus] = useState<"on_time" | "late">("on_time");
   const [isAdjustingPoints, setIsAdjustingPoints] = useState(false);
   const [studentNotes, setStudentNotes] = useState<Record<string, string>>({});
   const [savingStudentNoteId, setSavingStudentNoteId] = useState<string | null>(null);
   const [batchPointMode, setBatchPointMode] = useState<"give" | "recover" | null>(null);
   const [batchPointAmount, setBatchPointAmount] = useState("");
   const [batchPointReason, setBatchPointReason] = useState("포인트 조정");
+  const [batchAttendanceStatus, setBatchAttendanceStatus] =
+    useState<"on_time" | "late">("on_time");
   const [newStudentName, setNewStudentName] = useState("");
   const [newStudentGrade, setNewStudentGrade] = useState("");
   const [newStudentPhone, setNewStudentPhone] = useState("");
@@ -403,7 +418,7 @@ export default function AdminPage() {
   }, [departments]);
 
   const hasSelectedFranchise = session?.role !== "master" || Boolean(selectedFranchiseId);
-  const canUseShop = (session?.role === "master" || session?.role === "manager") && hasSelectedFranchise;
+  const canUseShop = Boolean(session) && hasSelectedFranchise;
   const canManageTeachers =
     (session?.role === "master" || session?.role === "manager") && hasSelectedFranchise;
   const canManageFranchises = session?.role === "master";
@@ -412,6 +427,7 @@ export default function AdminPage() {
     session?.role === "manager" || (session?.role === "master" && hasSelectedFranchise);
   const canManagePointReasons =
     session?.role === "manager" || (session?.role === "master" && hasSelectedFranchise);
+  const canOpenAchievements = Boolean(session) && hasSelectedFranchise;
   const scopeLabel =
     session?.role === "master"
       ? selectedFranchiseId
@@ -430,9 +446,10 @@ export default function AdminPage() {
         { id: "shop" as const, label: "상점 관리", allowed: canUseShop },
         { id: "purchaseRequests" as const, label: "구매 신청 관리", allowed: canUseShop },
         { id: "pointReasons" as const, label: "포인트 사유 관리", allowed: canManagePointReasons },
+        { id: "achievements" as const, label: "칭호 지급", allowed: canOpenAchievements },
         { id: "announcements" as const, label: "공지 관리", allowed: canOpenAnnouncements },
       ].filter((item) => item.allowed),
-    [canManageFranchises, canManagePointReasons, canManageTeachers, canOpenAnnouncements, canUseShop, hasSelectedFranchise, session?.role]
+    [canManageFranchises, canManagePointReasons, canManageTeachers, canOpenAchievements, canOpenAnnouncements, canUseShop, hasSelectedFranchise, session?.role]
   );
 
   const scopedStudents = useMemo(() => {
@@ -604,7 +621,7 @@ export default function AdminPage() {
   };
 
   const loadPurchaseRequests = async () => {
-    if (!session || !["master", "manager"].includes(session.role)) {
+    if (!session) {
       return;
     }
 
@@ -1170,7 +1187,7 @@ export default function AdminPage() {
   const handleSaveProduct = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    if (!session || !["master", "manager"].includes(session.role)) {
+    if (!session) {
       return;
     }
 
@@ -1243,7 +1260,7 @@ export default function AdminPage() {
   };
 
   const handleToggleProductStatus = async (product: Product) => {
-    if (!session || !["master", "manager"].includes(session.role)) {
+    if (!session) {
       return;
     }
 
@@ -1297,7 +1314,7 @@ export default function AdminPage() {
   };
 
   const handleDeleteProduct = async (product: Product) => {
-    if (!session || !["master", "manager"].includes(session.role)) {
+    if (!session) {
       return;
     }
 
@@ -1343,11 +1360,148 @@ export default function AdminPage() {
     setDeletingProductId(null);
   };
 
+  const handleDeactivateProducts = async (selectedProducts: Product[]) => {
+    if (!session || !selectedProducts.length) {
+      return;
+    }
+
+    const productDepartmentId =
+      session.role === "master" ? selectedFranchiseId : session.departmentId;
+
+    if (!productDepartmentId) {
+      setDataMessage("가맹점을 먼저 선택해주세요.");
+      return;
+    }
+
+    const activeSelectedProducts = selectedProducts.filter((product) => product.is_active);
+
+    if (!activeSelectedProducts.length) {
+      return;
+    }
+
+    if (
+      !window.confirm(
+        `선택한 상품 ${activeSelectedProducts.length}개를 모두 비활성화하시겠습니까?`
+      )
+    ) {
+      return;
+    }
+
+    setIsBatchProcessingProducts(true);
+    setDataMessage("");
+    const { data: sessionData } = await supabase.auth.getSession();
+    const updatedProductIds: string[] = [];
+
+    for (const product of activeSelectedProducts) {
+      const response = await fetch("/api/admin/products", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${sessionData.session?.access_token ?? ""}`,
+        },
+        body: JSON.stringify({
+          id: product.id,
+          departmentId: productDepartmentId,
+          isActive: false,
+        }),
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+        setProducts((currentProducts) =>
+          currentProducts.map((currentProduct) =>
+            updatedProductIds.includes(currentProduct.id)
+              ? { ...currentProduct, is_active: false }
+              : currentProduct
+          )
+        );
+        setDataMessage(payload?.error ?? "일부 상품을 비활성화하지 못했습니다.");
+        setIsBatchProcessingProducts(false);
+        return;
+      }
+
+      updatedProductIds.push(product.id);
+    }
+
+    setProducts((currentProducts) =>
+      currentProducts.map((currentProduct) =>
+        updatedProductIds.includes(currentProduct.id)
+          ? { ...currentProduct, is_active: false }
+          : currentProduct
+      )
+    );
+    setDataMessage(`상품 ${updatedProductIds.length}개를 비활성화했습니다.`);
+    setIsBatchProcessingProducts(false);
+  };
+
+  const handleDeleteProducts = async (selectedProducts: Product[]) => {
+    if (!session || !selectedProducts.length) {
+      return;
+    }
+
+    const productDepartmentId =
+      session.role === "master" ? selectedFranchiseId : session.departmentId;
+
+    if (!productDepartmentId) {
+      setDataMessage("가맹점을 먼저 선택해주세요.");
+      return;
+    }
+
+    if (
+      !window.confirm(
+        `선택한 상품 ${selectedProducts.length}개를 모두 완전히 삭제하시겠습니까?`
+      )
+    ) {
+      return;
+    }
+
+    setIsBatchProcessingProducts(true);
+    setDataMessage("");
+    const { data: sessionData } = await supabase.auth.getSession();
+    const deletedProductIds: string[] = [];
+
+    for (const product of selectedProducts) {
+      const response = await fetch("/api/admin/products", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${sessionData.session?.access_token ?? ""}`,
+        },
+        body: JSON.stringify({
+          id: product.id,
+          departmentId: productDepartmentId,
+        }),
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+        setProducts((currentProducts) =>
+          currentProducts.filter(
+            (currentProduct) => !deletedProductIds.includes(currentProduct.id)
+          )
+        );
+        setDataMessage(payload?.error ?? "일부 상품을 삭제하지 못했습니다.");
+        setIsBatchProcessingProducts(false);
+        return;
+      }
+
+      deletedProductIds.push(product.id);
+    }
+
+    setProducts((currentProducts) =>
+      currentProducts.filter(
+        (currentProduct) => !deletedProductIds.includes(currentProduct.id)
+      )
+    );
+    setDataMessage(`상품 ${deletedProductIds.length}개를 삭제했습니다.`);
+    setIsBatchProcessingProducts(false);
+  };
+
   const handleProcessPurchaseRequest = async (
     request: PurchaseRequest,
     action: "approve" | "reject"
   ) => {
-    if (!session || !["master", "manager"].includes(session.role)) {
+    if (!session) {
       return;
     }
 
@@ -1733,9 +1887,7 @@ export default function AdminPage() {
       return;
     }
 
-    const nextBalance = selectedStudent.points + parsedAmount;
-
-    if (nextBalance < 0) {
+    if (selectedStudent.points + parsedAmount < 0) {
       setDataMessage("DP가 0보다 작습니다.");
       return;
     }
@@ -1743,38 +1895,33 @@ export default function AdminPage() {
     setIsAdjustingPoints(true);
     setDataMessage("");
 
-    const { error: updateError } = await supabase
-      .from("students")
-      .update({ points: nextBalance })
-      .eq("id", selectedStudent.id);
+    const { data: transaction, error } = await supabase.rpc("adjust_student_points", {
+      target_student_id: selectedStudent.id,
+      point_amount: parsedAmount,
+      point_reason: pointReason.trim(),
+      selected_attendance_status:
+        pointReason.trim() === "등원" && parsedAmount > 0 ? attendanceStatus : null,
+      selected_attendance_date: null,
+    });
 
-    if (updateError) {
-      setDataMessage("포인트를 수정하지 못했습니다.");
+    if (error) {
+      setDataMessage(
+        error.message.includes("point_transactions_student_attendance_date_key")
+          ? "이 학생은 오늘 이미 등원 포인트를 지급받았습니다."
+          : error.message
+      );
       setIsAdjustingPoints(false);
       return;
     }
 
-    const { error: transactionError } = await supabase.from("point_transactions").insert({
-      student_id: selectedStudent.id,
-      department_id: selectedStudent.department_id,
-      amount: parsedAmount,
-      balance_after: nextBalance,
-      transaction_type: "etc",
-      reason: pointReason.trim() || "포인트 조정",
-      adjusted_by: session.id,
-    });
-
-    if (transactionError) {
-      setDataMessage("포인트는 수정했지만 이력 저장에 실패했습니다.");
-    } else {
-      setDataMessage(`${selectedStudent.name} 학생의 포인트를 변경했습니다.`);
-    }
-
+    const savedTransaction = Array.isArray(transaction) ? transaction[0] : transaction;
+    const nextBalance = Number(savedTransaction?.balance_after ?? selectedStudent.points + parsedAmount);
     setStudents((currentStudents) =>
       currentStudents.map((student) =>
         student.id === selectedStudent.id ? { ...student, points: nextBalance } : student
       )
     );
+    setDataMessage(`${selectedStudent.name} 학생의 포인트를 변경했습니다.`);
     setIsAdjustingPoints(false);
   };
 
@@ -1795,9 +1942,7 @@ export default function AdminPage() {
       return;
     }
 
-    const nextBalance = student.points + signedAmount;
-
-    if (nextBalance < 0) {
+    if (student.points + signedAmount < 0) {
       setDataMessage("DP가 0보다 작아질 수 없습니다.");
       return;
     }
@@ -1805,37 +1950,33 @@ export default function AdminPage() {
     setIsAdjustingPoints(true);
     setDataMessage("");
 
-    const { error: updateError } = await supabase
-      .from("students")
-      .update({ points: nextBalance })
-      .eq("id", student.id);
+    const { data: transaction, error } = await supabase.rpc("adjust_student_points", {
+      target_student_id: student.id,
+      point_amount: signedAmount,
+      point_reason: pointReason.trim(),
+      selected_attendance_status:
+        pointReason.trim() === "등원" && direction === "give" ? attendanceStatus : null,
+      selected_attendance_date: null,
+    });
 
-    if (updateError) {
-      setDataMessage("포인트를 수정하지 못했습니다.");
+    if (error) {
+      setDataMessage(
+        error.message.includes("point_transactions_student_attendance_date_key")
+          ? "이 학생은 오늘 이미 등원 포인트를 지급받았습니다."
+          : error.message
+      );
       setIsAdjustingPoints(false);
       return;
     }
 
-    const { error: transactionError } = await supabase.from("point_transactions").insert({
-      student_id: student.id,
-      department_id: student.department_id,
-      amount: signedAmount,
-      balance_after: nextBalance,
-      transaction_type: "etc",
-      reason: pointReason.trim() || "포인트 조정",
-      adjusted_by: session?.id,
-    });
-
+    const savedTransaction = Array.isArray(transaction) ? transaction[0] : transaction;
+    const nextBalance = Number(savedTransaction?.balance_after ?? student.points + signedAmount);
     setStudents((currentStudents) =>
       currentStudents.map((currentStudent) =>
         currentStudent.id === student.id ? { ...currentStudent, points: nextBalance } : currentStudent
       )
     );
-    setDataMessage(
-      transactionError
-        ? "포인트는 수정했지만 이력 저장에 실패했습니다."
-        : `${student.name} 학생의 포인트를 변경했습니다.`
-    );
+    setDataMessage(`${student.name} 학생의 포인트를 변경했습니다.`);
     setIsAdjustingPoints(false);
   };
 
@@ -1868,27 +2009,27 @@ export default function AdminPage() {
     setDataMessage("");
 
     for (const student of targets) {
-      const nextBalance = student.points + signedAmount;
-      const { error: updateError } = await supabase
-        .from("students")
-        .update({ points: nextBalance })
-        .eq("id", student.id);
+      const { error } = await supabase.rpc("adjust_student_points", {
+        target_student_id: student.id,
+        point_amount: signedAmount,
+        point_reason: batchPointReason.trim(),
+        selected_attendance_status:
+          batchPointReason.trim() === "등원" && batchPointMode === "give"
+            ? batchAttendanceStatus
+            : null,
+        selected_attendance_date: null,
+      });
 
-      if (updateError) {
-        setDataMessage("일괄 포인트 조정 중 오류가 발생했습니다.");
+      if (error) {
+        setDataMessage(
+          error.message.includes("point_transactions_student_attendance_date_key")
+            ? `${student.name} 학생은 오늘 이미 등원 포인트를 지급받았습니다.`
+            : `${student.name}: ${error.message}`
+        );
         setIsAdjustingPoints(false);
+        await loadAdminData(session);
         return;
       }
-
-      await supabase.from("point_transactions").insert({
-        student_id: student.id,
-        department_id: student.department_id,
-        amount: signedAmount,
-        balance_after: nextBalance,
-        transaction_type: "etc",
-        reason: batchPointReason.trim() || pointReason.trim() || "포인트 조정",
-        adjusted_by: session.id,
-      });
     }
 
     setStudents((currentStudents) =>
@@ -1901,6 +2042,7 @@ export default function AdminPage() {
     setBatchPointMode(null);
     setBatchPointAmount("");
     setBatchPointReason("포인트 조정");
+    setBatchAttendanceStatus("on_time");
     setDataMessage(`${targets.length}명에게 포인트를 일괄 변경했습니다.`);
     setIsAdjustingPoints(false);
   };
@@ -2098,7 +2240,15 @@ export default function AdminPage() {
 
           <nav className="mt-6 space-y-2">
             {navItems.map((item) => {
-              const isFranchiseChild = ["students", "teachers", "shop", "purchaseRequests", "pointReasons", "announcements"].includes(item.id);
+              const isFranchiseChild = [
+                "students",
+                "teachers",
+                "shop",
+                "purchaseRequests",
+                "pointReasons",
+                "achievements",
+                "announcements",
+              ].includes(item.id);
               const franchiseChildLabel =
                 isFranchiseChild && selectedFranchiseId
                   ? `${item.label} (${departmentNameById.get(selectedFranchiseId) ?? "선택 가맹점"})`
@@ -2167,6 +2317,7 @@ export default function AdminPage() {
 	                {activeView === "announcements" && "공지 관리"}
 	                {activeView === "purchaseRequests" && "구매 신청 관리"}
 	                {activeView === "pointReasons" && "포인트 사유 관리"}
+	                {activeView === "achievements" && "칭호 지급"}
 	              </h2>
 	            </div>
             {isLoadingData && <p className="text-sm font-bold text-slate-500">불러오는 중</p>}
@@ -2193,9 +2344,11 @@ export default function AdminPage() {
 	              studentNotes={studentNotes}
 	              pointAmount={pointAmount}
 	              pointReason={pointReason}
+	              attendanceStatus={attendanceStatus}
 	              batchPointMode={batchPointMode}
 	              batchPointAmount={batchPointAmount}
 	              batchPointReason={batchPointReason}
+	              batchAttendanceStatus={batchAttendanceStatus}
 	              isAdjustingPoints={isAdjustingPoints}
 	              savingStudentNoteId={savingStudentNoteId}
 	              selectedUploadFile={selectedUploadFile}
@@ -2212,6 +2365,7 @@ export default function AdminPage() {
 		              onStudentSearch={handleStudentSearch}
 	              onPointAmountChange={setPointAmount}
 	              onPointReasonChange={setPointReason}
+	              onAttendanceStatusChange={setAttendanceStatus}
 	              onAdjustPoints={handlePointAdjustment}
 	              onDirectedPointAdjustment={handleDirectedPointAdjustment}
 	              onStudentNoteChange={handleStudentNoteChange}
@@ -2219,6 +2373,7 @@ export default function AdminPage() {
 	              onBatchPointModeChange={setBatchPointMode}
 	              onBatchPointAmountChange={setBatchPointAmount}
 	              onBatchPointReasonChange={setBatchPointReason}
+	              onBatchAttendanceStatusChange={setBatchAttendanceStatus}
 	              onBatchPointConfirm={handleBatchPointAdjustment}
 	              onExcelUpload={handleStudentExcelUpload}
 	              onNewStudentNameChange={setNewStudentName}
@@ -2275,11 +2430,14 @@ export default function AdminPage() {
                 isUploadingProductImage={isUploadingProductImage}
                 updatingProductStatusId={updatingProductStatusId}
                 deletingProductId={deletingProductId}
+                isBatchProcessingProducts={isBatchProcessingProducts}
                 onProductStatusTabChange={setProductStatusTab}
                 onCreateProduct={openCreateProductModal}
                 onEditProduct={openEditProductModal}
                 onToggleProductStatus={handleToggleProductStatus}
                 onDeleteProduct={handleDeleteProduct}
+                onDeactivateProducts={handleDeactivateProducts}
+                onDeleteProducts={handleDeleteProducts}
                 onCloseProductModal={closeProductModal}
                 onProductEmojiChange={setProductEmoji}
                 onProductImageChange={handleProductImageChange}
@@ -2298,6 +2456,15 @@ export default function AdminPage() {
               />
               ) : activeView === "pointReasons" ? (
                 <PointReasonManagementView
+                  departmentId={
+                    session.role === "master"
+                      ? selectedFranchiseId
+                      : session.departmentId ?? ""
+                  }
+                />
+              ) : activeView === "achievements" ? (
+                <AchievementManagementView
+                  role={session.role}
                   departmentId={
                     session.role === "master"
                       ? selectedFranchiseId
@@ -2531,6 +2698,139 @@ function PointReasonSelector({
   );
 }
 
+function AttendanceStatusSelector({
+  value,
+  onChange,
+}: {
+  value: "on_time" | "late";
+  onChange: (value: "on_time" | "late") => void;
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1">
+      <button
+        type="button"
+        onClick={() => onChange("on_time")}
+        className={`rounded-lg px-3 py-2 text-sm font-black ${
+          value === "on_time" ? "bg-blue-600 text-white" : "text-slate-500 hover:bg-white"
+        }`}
+      >
+        정시 출석
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange("late")}
+        className={`rounded-lg px-3 py-2 text-sm font-black ${
+          value === "late" ? "bg-orange-600 text-white" : "text-slate-500 hover:bg-white"
+        }`}
+      >
+        지각 출석
+      </button>
+    </div>
+  );
+}
+
+function StudentAchievementModal({
+  student,
+  achievements,
+  selectedAchievementId,
+  isLoading,
+  isSaving,
+  message,
+  onSelect,
+  onAward,
+  onClose,
+}: {
+  student: Student | null;
+  achievements: AchievementOption[];
+  selectedAchievementId: string;
+  isLoading: boolean;
+  isSaving: boolean;
+  message: string;
+  onSelect: (achievementId: string) => void;
+  onAward: () => void;
+  onClose: () => void;
+}) {
+  if (!student) {
+    return null;
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-6">
+      <section className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl">
+        <p className="text-sm font-black text-blue-600">칭호 지급</p>
+        <h3 className="mt-1 text-2xl font-black text-slate-900">{student.name} 학생</h3>
+        <p className="mt-2 text-sm font-bold text-slate-500">
+          지급할 칭호를 선택한 후 지급 버튼을 눌러주세요.
+        </p>
+
+        <label className="mt-6 block">
+          <span className="text-sm font-black text-slate-600">칭호 선택</span>
+          <select
+            value={selectedAchievementId}
+            disabled={isLoading || isSaving}
+            onChange={(event) => onSelect(event.target.value)}
+            className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-bold outline-none focus:border-blue-500 focus:bg-white disabled:opacity-60"
+          >
+            <option value="">
+              {isLoading ? "칭호를 불러오는 중" : "칭호를 선택하세요"}
+            </option>
+            {achievements.map((achievement) => (
+              <option key={achievement.id} value={achievement.id}>
+                {achievement.name} · {achievement.isAutomatic ? "자동 칭호" : "직접 지급"}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        {selectedAchievementId && (
+          <div className="mt-4 rounded-xl bg-slate-50 p-4">
+            <p className="font-black text-slate-800">
+              {achievements.find((achievement) => achievement.id === selectedAchievementId)?.name}
+            </p>
+            <p className="mt-1 text-sm font-bold leading-6 text-slate-500">
+              {
+                achievements.find((achievement) => achievement.id === selectedAchievementId)
+                  ?.description
+              }
+            </p>
+          </div>
+        )}
+
+        {!isLoading && achievements.length === 0 && (
+          <p className="mt-4 rounded-xl bg-slate-50 px-4 py-8 text-center text-sm font-bold text-slate-400">
+            이 학생에게 지급할 수 있는 칭호가 없습니다.
+          </p>
+        )}
+
+        {message && (
+          <p className="mt-4 rounded-xl bg-red-50 px-4 py-3 text-sm font-bold text-red-600">
+            {message}
+          </p>
+        )}
+
+        <div className="mt-6 grid grid-cols-2 gap-3">
+          <button
+            type="button"
+            disabled={!selectedAchievementId || isLoading || isSaving}
+            onClick={onAward}
+            className="rounded-xl bg-blue-600 py-3 font-black text-white hover:bg-blue-700 disabled:bg-slate-300"
+          >
+            {isSaving ? "지급 중" : "지급"}
+          </button>
+          <button
+            type="button"
+            disabled={isSaving}
+            onClick={onClose}
+            className="rounded-xl bg-slate-100 py-3 font-black text-slate-600 hover:bg-slate-200 disabled:opacity-50"
+          >
+            취소
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function StudentManagementView({
   role,
   departmentId,
@@ -2541,9 +2841,11 @@ function StudentManagementView({
   studentNotes,
   pointAmount,
   pointReason,
+  attendanceStatus,
   batchPointMode,
   batchPointAmount,
   batchPointReason,
+  batchAttendanceStatus,
   isAdjustingPoints,
   savingStudentNoteId,
   selectedUploadFile,
@@ -2560,6 +2862,7 @@ function StudentManagementView({
   onStudentSearch,
   onPointAmountChange,
   onPointReasonChange,
+  onAttendanceStatusChange,
   onAdjustPoints,
   onDirectedPointAdjustment,
   onStudentNoteChange,
@@ -2567,6 +2870,7 @@ function StudentManagementView({
   onBatchPointModeChange,
   onBatchPointAmountChange,
   onBatchPointReasonChange,
+  onBatchAttendanceStatusChange,
   onBatchPointConfirm,
   onExcelUpload,
   onNewStudentNameChange,
@@ -2588,9 +2892,11 @@ function StudentManagementView({
   studentNotes: Record<string, string>;
   pointAmount: string;
   pointReason: string;
+  attendanceStatus: "on_time" | "late";
   batchPointMode: "give" | "recover" | null;
   batchPointAmount: string;
   batchPointReason: string;
+  batchAttendanceStatus: "on_time" | "late";
   isAdjustingPoints: boolean;
   savingStudentNoteId: string | null;
   selectedUploadFile: string;
@@ -2607,6 +2913,7 @@ function StudentManagementView({
   onStudentSearch: (event: FormEvent<HTMLFormElement>) => void;
   onPointAmountChange: (amount: string) => void;
   onPointReasonChange: (reason: string) => void;
+  onAttendanceStatusChange: (status: "on_time" | "late") => void;
   onAdjustPoints: () => void;
   onDirectedPointAdjustment: (student: Student, direction: "give" | "recover") => void;
   onStudentNoteChange: (studentId: string, note: string) => void;
@@ -2614,6 +2921,7 @@ function StudentManagementView({
   onBatchPointModeChange: (mode: "give" | "recover" | null) => void;
   onBatchPointAmountChange: (amount: string) => void;
   onBatchPointReasonChange: (reason: string) => void;
+  onBatchAttendanceStatusChange: (status: "on_time" | "late") => void;
   onBatchPointConfirm: () => void;
   onExcelUpload: (file: File | null) => void;
   onNewStudentNameChange: (name: string) => void;
@@ -2631,8 +2939,13 @@ function StudentManagementView({
   const allStudentsChecked = students.length > 0 && checkedStudentIds.size === students.length;
   const checkedStudents = students.filter((student) => checkedStudentIds.has(student.id));
   const [expandedStudentId, setExpandedStudentId] = useState("");
-  const [expandedNoteStudentId, setExpandedNoteStudentId] = useState("");
   const [pointReasonPresets, setPointReasonPresets] = useState<PointReasonPreset[]>([]);
+  const [achievementStudent, setAchievementStudent] = useState<Student | null>(null);
+  const [availableAchievements, setAvailableAchievements] = useState<AchievementOption[]>([]);
+  const [selectedAchievementId, setSelectedAchievementId] = useState("");
+  const [isLoadingAchievements, setIsLoadingAchievements] = useState(false);
+  const [isAwardingAchievement, setIsAwardingAchievement] = useState(false);
+  const [achievementMessage, setAchievementMessage] = useState("");
 
   useEffect(() => {
     let isMounted = true;
@@ -2670,6 +2983,84 @@ function StudentManagementView({
       isMounted = false;
     };
   }, [departmentId]);
+
+  const openAchievementModal = async (student: Student) => {
+    setAchievementStudent(student);
+    setAvailableAchievements([]);
+    setSelectedAchievementId("");
+    setAchievementMessage("");
+    setIsLoadingAchievements(true);
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const params = new URLSearchParams({
+      departmentId,
+      studentId: student.id,
+    });
+    const response = await fetch(`/api/admin/achievements?${params.toString()}`, {
+      headers: {
+        Authorization: `Bearer ${sessionData.session?.access_token ?? ""}`,
+      },
+    });
+    const payload = (await response.json().catch(() => null)) as {
+      achievements?: AchievementOption[];
+      error?: string;
+    } | null;
+
+    if (!response.ok) {
+      setAchievementMessage(payload?.error ?? "칭호 목록을 불러오지 못했습니다.");
+    } else {
+      setAvailableAchievements(payload?.achievements ?? []);
+    }
+
+    setIsLoadingAchievements(false);
+  };
+
+  const closeAchievementModal = () => {
+    if (isAwardingAchievement) {
+      return;
+    }
+
+    setAchievementStudent(null);
+    setAvailableAchievements([]);
+    setSelectedAchievementId("");
+    setAchievementMessage("");
+  };
+
+  const awardAchievement = async () => {
+    if (!achievementStudent || !selectedAchievementId) {
+      setAchievementMessage("지급할 칭호를 선택해주세요.");
+      return;
+    }
+
+    setIsAwardingAchievement(true);
+    setAchievementMessage("");
+    const { data: sessionData } = await supabase.auth.getSession();
+    const response = await fetch("/api/admin/achievements", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${sessionData.session?.access_token ?? ""}`,
+      },
+      body: JSON.stringify({
+        departmentId,
+        studentId: achievementStudent.id,
+        achievementId: selectedAchievementId,
+      }),
+    });
+    const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+
+    if (!response.ok) {
+      setAchievementMessage(payload?.error ?? "칭호를 지급하지 못했습니다.");
+      setIsAwardingAchievement(false);
+      return;
+    }
+
+    setIsAwardingAchievement(false);
+    setAchievementStudent(null);
+    setAvailableAchievements([]);
+    setSelectedAchievementId("");
+    setAchievementMessage("");
+  };
 
   if (isPointFocused) {
     return (
@@ -2769,6 +3160,14 @@ function StudentManagementView({
                             compact
                           />
                         </div>
+                        {pointReason === "등원" && (
+                          <div className="mt-3">
+                            <AttendanceStatusSelector
+                              value={attendanceStatus}
+                              onChange={onAttendanceStatusChange}
+                            />
+                          </div>
+                        )}
                         <textarea
                           value={studentNotes[student.id] ?? student.note ?? ""}
                           onChange={(event) => onStudentNoteChange(student.id, event.target.value)}
@@ -2800,6 +3199,13 @@ function StudentManagementView({
                           className="rounded-xl bg-rose-50 px-4 py-3 text-sm font-black text-rose-600 hover:bg-rose-100 disabled:text-rose-300"
                         >
                           포인트 회수
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openAchievementModal(student)}
+                          className="rounded-xl bg-amber-50 px-4 py-3 text-sm font-black text-amber-700 hover:bg-amber-100"
+                        >
+                          칭호 지급
                         </button>
                       </div>
                     </div>
@@ -2867,6 +3273,14 @@ function StudentManagementView({
                   onDefaultPointsSelect={(points) => onBatchPointAmountChange(String(points))}
                 />
               </div>
+              {batchPointMode === "give" && batchPointReason === "등원" && (
+                <div className="mt-3">
+                  <AttendanceStatusSelector
+                    value={batchAttendanceStatus}
+                    onChange={onBatchAttendanceStatusChange}
+                  />
+                </div>
+              )}
               <div className="mt-3 grid grid-cols-2 gap-2">
                 <button
                   disabled={isAdjustingPoints}
@@ -2890,12 +3304,23 @@ function StudentManagementView({
             </div>
           )}
         </aside>
+        <StudentAchievementModal
+          student={achievementStudent}
+          achievements={availableAchievements}
+          selectedAchievementId={selectedAchievementId}
+          isLoading={isLoadingAchievements}
+          isSaving={isAwardingAchievement}
+          message={achievementMessage}
+          onSelect={setSelectedAchievementId}
+          onAward={awardAchievement}
+          onClose={closeAchievementModal}
+        />
       </div>
     );
   }
 
   return (
-    <div className="mt-8 grid gap-6 xl:grid-cols-[1fr_360px]">
+    <div className="mt-8">
       <section
         onDragOver={(event) => {
           if (!canEditStudents) {
@@ -3003,82 +3428,152 @@ function StudentManagementView({
           <table className="w-full min-w-[980px] text-left text-sm">
             <thead className="bg-slate-50 text-xs font-black text-slate-500">
               <tr>
-                {canEditStudents && (
-                  <th className="px-5 py-3">
-                    <input
-                      type="checkbox"
-                      checked={allStudentsChecked}
-                      onChange={(event) => onToggleAllStudents(event.target.checked)}
-                      className="h-4 w-4"
-                    />
-                  </th>
-                )}
-                <th className="px-5 py-3">학생</th>
+                <th className="w-16 px-5 py-3">
+                  <input
+                    type="checkbox"
+                    checked={allStudentsChecked}
+                    onChange={(event) => onToggleAllStudents(event.target.checked)}
+                    className="h-4 w-4"
+                    aria-label="학생 전체 선택"
+                  />
+                </th>
+                <th className="px-5 py-3">학생 이름</th>
+                <th className="px-5 py-3">부모님 번호</th>
                 <th className="px-5 py-3">학년</th>
-                <th className="px-5 py-3">학부모 연락처</th>
-                <th className="px-5 py-3">포인트</th>
-                <th className="px-5 py-3">비고</th>
+                <th className="px-5 py-3">보유 포인트</th>
                 <th className="px-5 py-3">상태</th>
+                <th className="w-24 px-5 py-3"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {students.map((student) => {
-                const isNoteExpanded = expandedNoteStudentId === student.id;
+                const isExpanded = expandedStudentId === student.id;
 
                 return (
                   <Fragment key={student.id}>
-                    <tr className="hover:bg-slate-50">
-                      {canEditStudents && (
-                        <td className="px-5 py-4">
-                          <input
-                            type="checkbox"
-                            checked={checkedStudentIds.has(student.id)}
-                            onChange={(event) => onStudentCheck(student.id, event.target.checked)}
-                            className="h-4 w-4"
-                          />
-                        </td>
-                      )}
+                    <tr
+                      onClick={() => setExpandedStudentId(isExpanded ? "" : student.id)}
+                      className="cursor-pointer hover:bg-slate-50"
+                    >
+                      <td className="px-5 py-4" onClick={(event) => event.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={checkedStudentIds.has(student.id)}
+                          onChange={(event) => onStudentCheck(student.id, event.target.checked)}
+                          className="h-4 w-4"
+                          aria-label={`${student.name} 선택`}
+                        />
+                      </td>
                       <td className="px-5 py-4 font-black">{student.name}</td>
+                      <td className="px-5 py-4 text-slate-500">{student.parent_phone}</td>
                       <td className="px-5 py-4 text-slate-500">
                         {getPromotedGrade(student.grade, student.created_at)}
                       </td>
-                      <td className="px-5 py-4 text-slate-500">{student.parent_phone}</td>
                       <td className="px-5 py-4 font-black text-blue-600">
                         {student.points.toLocaleString()} DP
                       </td>
                       <td className="px-5 py-4">
-                        <button
-                          type="button"
-                          onClick={() => setExpandedNoteStudentId(isNoteExpanded ? "" : student.id)}
-                          className="rounded-xl bg-slate-100 px-4 py-2 text-xs font-black text-slate-700 hover:bg-slate-200"
+                        <span
+                          className={`rounded-full px-3 py-1 text-xs font-black ${
+                            student.is_active
+                              ? "bg-emerald-50 text-emerald-700"
+                              : "bg-slate-100 text-slate-500"
+                          }`}
                         >
-                          {isNoteExpanded ? "비고 닫기" : "비고 확인"}
-                        </button>
-                      </td>
-                      <td className="px-5 py-4">
-                        <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">
                           {student.is_active ? "활성" : "비활성"}
                         </span>
                       </td>
+                      <td className="px-5 py-4">
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setExpandedStudentId(isExpanded ? "" : student.id);
+                          }}
+                          className="rounded-xl bg-slate-100 px-4 py-2 text-xs font-black text-slate-600 hover:bg-slate-200"
+                        >
+                          {isExpanded ? "닫기" : "열기"}
+                        </button>
+                      </td>
                     </tr>
-                    {isNoteExpanded && (
-                      <tr key={`${student.id}-note`} className="bg-slate-50">
-                        <td colSpan={canEditStudents ? 7 : 6} className="px-5 py-4">
-                          <textarea
-                            value={studentNotes[student.id] ?? student.note ?? ""}
-                            onChange={(event) => onStudentNoteChange(student.id, event.target.value)}
-                            className="min-h-24 w-full resize-y rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-600 outline-none focus:border-blue-400"
-                            placeholder="비고"
-                          />
-                          <div className="mt-3 flex justify-end">
-                            <button
-                              type="button"
-                              disabled={savingStudentNoteId === student.id}
-                              onClick={() => onStudentNoteSave(student.id)}
-                              className="rounded-xl bg-slate-900 px-4 py-2 text-xs font-black text-white hover:bg-slate-800 disabled:bg-slate-300"
-                            >
-                              {savingStudentNoteId === student.id ? "저장 중" : "비고 저장"}
-                            </button>
+                    {isExpanded && (
+                      <tr key={`${student.id}-management`} className="bg-slate-50">
+                        <td colSpan={7} className="px-5 py-5">
+                          <div className="grid gap-5 lg:grid-cols-[1fr_180px]">
+                            <div>
+                              <div className="grid gap-3 md:grid-cols-2">
+                                <input
+                                  type="text"
+                                  inputMode="numeric"
+                                  value={pointAmount}
+                                  onChange={(event) =>
+                                    onPointAmountChange(event.target.value.replace(/[^\d-]/g, ""))
+                                  }
+                                  className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-blue-400"
+                                  placeholder="포인트"
+                                />
+                                <PointReasonSelector
+                                  value={pointReason}
+                                  presets={pointReasonPresets}
+                                  onChange={onPointReasonChange}
+                                  onDefaultPointsSelect={(points) =>
+                                    onPointAmountChange(String(points))
+                                  }
+                                  compact
+                                />
+                              </div>
+                              {pointReason === "등원" && (
+                                <div className="mt-3">
+                                  <AttendanceStatusSelector
+                                    value={attendanceStatus}
+                                    onChange={onAttendanceStatusChange}
+                                  />
+                                </div>
+                              )}
+                              <textarea
+                                value={studentNotes[student.id] ?? student.note ?? ""}
+                                onChange={(event) =>
+                                  onStudentNoteChange(student.id, event.target.value)
+                                }
+                                className="mt-3 min-h-28 w-full resize-y rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-600 outline-none focus:border-blue-400"
+                                placeholder="비고"
+                              />
+                              <div className="mt-3 flex justify-end">
+                                <button
+                                  type="button"
+                                  disabled={savingStudentNoteId === student.id}
+                                  onClick={() => onStudentNoteSave(student.id)}
+                                  className="rounded-xl bg-slate-900 px-5 py-2.5 text-xs font-black text-white hover:bg-slate-800 disabled:bg-slate-300"
+                                >
+                                  {savingStudentNoteId === student.id ? "저장 중" : "비고 저장"}
+                                </button>
+                              </div>
+                            </div>
+                            <div className="flex flex-col gap-3">
+                              <button
+                                type="button"
+                                disabled={isAdjustingPoints}
+                                onClick={() => onDirectedPointAdjustment(student, "give")}
+                                className="rounded-xl bg-blue-600 px-4 py-3 text-sm font-black text-white hover:bg-blue-700 disabled:bg-slate-300"
+                              >
+                                포인트 추가
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isAdjustingPoints}
+                                onClick={() => onDirectedPointAdjustment(student, "recover")}
+                                className="rounded-xl bg-rose-50 px-4 py-3 text-sm font-black text-rose-600 hover:bg-rose-100 disabled:text-rose-300"
+                              >
+                                포인트 회수
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => openAchievementModal(student)}
+                                className="rounded-xl bg-amber-50 px-4 py-3 text-sm font-black text-amber-700 hover:bg-amber-100"
+                              >
+                                칭호 지급
+                              </button>
+                            </div>
                           </div>
                         </td>
                       </tr>
@@ -3089,7 +3584,7 @@ function StudentManagementView({
               {!students.length && (
                 <tr>
                   <td
-                    colSpan={canEditStudents ? 7 : 6}
+                    colSpan={7}
                     className="px-5 py-12 text-center font-bold text-slate-400"
                   >
                     검색 결과가 없습니다.
@@ -3101,7 +3596,7 @@ function StudentManagementView({
         </div>
 	      </section>
 
-	      <aside className="rounded-2xl bg-white p-5 shadow-sm">
+	      <aside className="hidden">
 	        <p className="text-sm font-black text-slate-500">포인트 관리</p>
 	        <h3 className="mt-2 text-xl font-black">
 	          {selectedStudent ? selectedStudent.name : "학생을 선택하세요"}
@@ -3143,6 +3638,14 @@ function StudentManagementView({
                 onDefaultPointsSelect={(points) => onPointAmountChange(String(points))}
               />
             </div>
+            {pointReason === "등원" && Number(pointAmount) > 0 && (
+              <div className="mt-3">
+                <AttendanceStatusSelector
+                  value={attendanceStatus}
+                  onChange={onAttendanceStatusChange}
+                />
+              </div>
+            )}
           </div>
 	          <div>
 	            <button
@@ -3211,6 +3714,17 @@ function StudentManagementView({
             </form>
           </div>
         )}
+        <StudentAchievementModal
+          student={achievementStudent}
+          achievements={availableAchievements}
+          selectedAchievementId={selectedAchievementId}
+          isLoading={isLoadingAchievements}
+          isSaving={isAwardingAchievement}
+          message={achievementMessage}
+          onSelect={setSelectedAchievementId}
+          onAward={awardAchievement}
+          onClose={closeAchievementModal}
+        />
 	    </div>
 	  );
 }
@@ -3649,11 +4163,14 @@ function ShopManagementView({
   isUploadingProductImage,
   updatingProductStatusId,
   deletingProductId,
+  isBatchProcessingProducts,
   onProductStatusTabChange,
   onCreateProduct,
   onEditProduct,
   onToggleProductStatus,
   onDeleteProduct,
+  onDeactivateProducts,
+  onDeleteProducts,
   onCloseProductModal,
   onProductEmojiChange,
   onProductImageChange,
@@ -3677,11 +4194,14 @@ function ShopManagementView({
   isUploadingProductImage: boolean;
   updatingProductStatusId: string | null;
   deletingProductId: string | null;
+  isBatchProcessingProducts: boolean;
   onProductStatusTabChange: (tab: "active" | "inactive") => void;
   onCreateProduct: () => void;
   onEditProduct: (product: Product) => void;
   onToggleProductStatus: (product: Product) => void;
   onDeleteProduct: (product: Product) => void;
+  onDeactivateProducts: (products: Product[]) => Promise<void>;
+  onDeleteProducts: (products: Product[]) => Promise<void>;
   onCloseProductModal: () => void;
   onProductEmojiChange: (emoji: string) => void;
   onProductImageChange: (event: ChangeEvent<HTMLInputElement>) => void;
@@ -3694,6 +4214,35 @@ function ShopManagementView({
   const inactiveProducts = products.filter((product) => !product.is_active);
   const displayedProducts = productStatusTab === "active" ? activeProducts : inactiveProducts;
   const registeredProductPrice = getRegisteredProductPrice(productPrice);
+  const [checkedProductIds, setCheckedProductIds] = useState<Set<string>>(new Set());
+  const checkedProducts = displayedProducts.filter((product) =>
+    checkedProductIds.has(product.id)
+  );
+  const areAllDisplayedProductsChecked =
+    displayedProducts.length > 0 &&
+    displayedProducts.every((product) => checkedProductIds.has(product.id));
+
+  const handleProductCheck = (productId: string, checked: boolean) => {
+    setCheckedProductIds((currentIds) => {
+      const nextIds = new Set(currentIds);
+
+      if (checked) {
+        nextIds.add(productId);
+      } else {
+        nextIds.delete(productId);
+      }
+
+      return nextIds;
+    });
+  };
+
+  const handleToggleAllProducts = () => {
+    setCheckedProductIds(
+      areAllDisplayedProductsChecked
+        ? new Set()
+        : new Set(displayedProducts.map((product) => product.id))
+    );
+  };
 
   return (
     <div className="mt-8 space-y-4">
@@ -3703,7 +4252,10 @@ function ShopManagementView({
           <div className="flex flex-wrap gap-2">
             <div className="grid grid-cols-2 rounded-xl bg-slate-100 p-1">
               <button
-                onClick={() => onProductStatusTabChange("active")}
+                onClick={() => {
+                  setCheckedProductIds(new Set());
+                  onProductStatusTabChange("active");
+                }}
                 className={`rounded-lg px-4 py-2 text-sm font-black ${
                   productStatusTab === "active" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500"
                 }`}
@@ -3711,7 +4263,10 @@ function ShopManagementView({
                 활성 상품 {activeProducts.length}
               </button>
               <button
-                onClick={() => onProductStatusTabChange("inactive")}
+                onClick={() => {
+                  setCheckedProductIds(new Set());
+                  onProductStatusTabChange("inactive");
+                }}
                 className={`rounded-lg px-4 py-2 text-sm font-black ${
                   productStatusTab === "inactive" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500"
                 }`}
@@ -3723,14 +4278,50 @@ function ShopManagementView({
               onClick={onCreateProduct}
               className="rounded-xl bg-blue-600 px-4 py-3 text-sm font-black text-white hover:bg-blue-700"
             >
-            상품 추가
+              상품 추가
+            </button>
+            <button
+              type="button"
+              disabled={
+                productStatusTab !== "active" ||
+                !checkedProducts.length ||
+                isBatchProcessingProducts
+              }
+              onClick={async () => {
+                await onDeactivateProducts(checkedProducts);
+                setCheckedProductIds(new Set());
+              }}
+              className="rounded-xl bg-slate-900 px-4 py-3 text-sm font-black text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
+            >
+              {isBatchProcessingProducts ? "처리 중" : "일괄 비활성화"}
+            </button>
+            <button
+              type="button"
+              disabled={!checkedProducts.length || isBatchProcessingProducts}
+              onClick={async () => {
+                await onDeleteProducts(checkedProducts);
+                setCheckedProductIds(new Set());
+              }}
+              className="rounded-xl bg-red-600 px-4 py-3 text-sm font-black text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
+            >
+              {isBatchProcessingProducts ? "처리 중" : "일괄 삭제"}
             </button>
           </div>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[820px] text-left text-sm">
+          <table className="w-full min-w-[880px] text-left text-sm">
             <thead className="bg-slate-50 text-xs font-black text-slate-500">
               <tr>
+                <th className="w-16 px-5 py-3">
+                  <input
+                    type="checkbox"
+                    checked={areAllDisplayedProductsChecked}
+                    disabled={!displayedProducts.length || isBatchProcessingProducts}
+                    onChange={handleToggleAllProducts}
+                    aria-label="표시된 상품 전체 선택"
+                    className="h-4 w-4 disabled:cursor-not-allowed disabled:opacity-40"
+                  />
+                </th>
                 <th className="px-5 py-3">상품 아이콘</th>
                 <th className="px-5 py-3">상품 이름</th>
                 {showDepartment && <th className="px-5 py-3">가맹점</th>}
@@ -3742,6 +4333,18 @@ function ShopManagementView({
             <tbody className="divide-y divide-slate-100">
               {displayedProducts.map((product) => (
                 <tr key={product.id} className="hover:bg-slate-50">
+                  <td className="px-5 py-4">
+                    <input
+                      type="checkbox"
+                      checked={checkedProductIds.has(product.id)}
+                      disabled={isBatchProcessingProducts}
+                      onChange={(event) =>
+                        handleProductCheck(product.id, event.target.checked)
+                      }
+                      aria-label={`${product.name} 선택`}
+                      className="h-4 w-4 disabled:cursor-not-allowed disabled:opacity-40"
+                    />
+                  </td>
                   <td className="px-5 py-4">
                     <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-xl bg-slate-100 text-xl font-black">
                       {product.image_url ? (
@@ -3803,7 +4406,7 @@ function ShopManagementView({
               {!displayedProducts.length && (
                 <tr>
                   <td
-                    colSpan={showDepartment ? 6 : 5}
+                    colSpan={showDepartment ? 7 : 6}
                     className="px-5 py-12 text-center font-bold text-slate-400"
                   >
                     아직 상품이 없습니다.

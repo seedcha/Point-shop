@@ -10,6 +10,7 @@ type LoginStudent = {
   parent_phone: string;
   grade: string;
   points: number;
+  selectionToken: string;
 };
 
 type DepartmentOption = {
@@ -51,14 +52,14 @@ const rankingPanelMeta = [
   {
     id: "honor",
     title: "명예의 전당 누적 포인트",
-    borderClass: "border-blue-500",
-    highlightClass: "bg-blue-50 text-blue-700",
+    borderClass: "border-cyan-400",
+    highlightClass: "hud-rank-leader",
   },
   {
     id: "assets",
-    title: "현재 보유 자산 랭킹",
-    borderClass: "border-emerald-500",
-    highlightClass: "bg-emerald-50 text-emerald-700",
+    title: "현재 보유 포인트 랭킹",
+    borderClass: "border-orange-400",
+    highlightClass: "hud-rank-leader",
   },
 ] as const;
 
@@ -87,6 +88,7 @@ export default function LobbyPage() {
   });
   const [announcements, setAnnouncements] = useState<LobbyAnnouncement[]>([]);
   const [activeAnnouncementIndex, setActiveAnnouncementIndex] = useState(0);
+  const [activeRankingIndex, setActiveRankingIndex] = useState(0);
   const [isLoadingAnnouncements, setIsLoadingAnnouncements] = useState(false);
   const [isLoadingRankings, setIsLoadingRankings] = useState(true);
   const router = useRouter();
@@ -94,6 +96,7 @@ export default function LobbyPage() {
     ...panel,
     rows: rankingRows[panel.id],
   }));
+  const activeRankingPanel = rankingPanels[activeRankingIndex] ?? rankingPanels[0];
   const activeAnnouncement = announcements[activeAnnouncementIndex] ?? null;
   const selectedDepartmentName =
     departments.find((department) => department.id === selectedDepartmentId)?.name ?? "";
@@ -201,6 +204,14 @@ export default function LobbyPage() {
   }, [activeAnnouncementIndex, announcements.length, selectedDepartmentId]);
 
   useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setActiveRankingIndex((currentIndex) => (currentIndex + 1) % rankingPanels.length);
+    }, 5000);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [activeRankingIndex, rankingPanels.length, selectedDepartmentId]);
+
+  useEffect(() => {
     if (!errorMessage) {
       return;
     }
@@ -258,7 +269,7 @@ export default function LobbyPage() {
     const students = payload.students ?? [];
 
     if (students.length === 1) {
-      router.push(`/dashboard?studentId=${students[0].id}`);
+      await enterStudentDashboard(students[0]);
       return;
     }
 
@@ -266,9 +277,29 @@ export default function LobbyPage() {
     setIsSubmitting(false);
   };
 
+  const enterStudentDashboard = async (student: LoginStudent) => {
+    setIsSubmitting(true);
+    setErrorMessage("");
+
+    const response = await fetch("/api/student/session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: student.selectionToken }),
+    });
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      setErrorMessage(payload?.error ?? "학생 로그인을 완료하지 못했습니다.");
+      setIsSubmitting(false);
+      return;
+    }
+
+    router.push(`/dashboard?studentId=${student.id}`);
+  };
+
   return (
-    <main className="relative flex min-h-screen flex-col items-center justify-center gap-4 bg-slate-100 px-4 pb-6 pt-28 xl:flex-row xl:items-center xl:gap-6 xl:px-10 xl:pb-10 xl:pt-24">
-      <div className="absolute left-5 top-5 flex items-center gap-3 rounded-2xl bg-white px-4 py-3 shadow-sm xl:left-10 xl:top-8">
+    <main className="relative flex min-h-screen w-full max-w-[100vw] flex-col items-center justify-center gap-4 overflow-x-hidden bg-slate-100 px-4 pb-6 pt-28 xl:flex-row xl:items-center xl:gap-6 xl:px-10 xl:pb-10 xl:pt-24">
+      <div className="fixed left-5 top-5 z-10 flex max-w-[calc(100vw-7rem)] items-center gap-3 rounded-2xl bg-white px-4 py-3 shadow-sm xl:left-10 xl:top-8">
         <label htmlFor="department-select" className="text-sm font-black text-slate-500">
           가맹점
         </label>
@@ -293,111 +324,135 @@ export default function LobbyPage() {
 
       <Link
         href="/admin"
-        className="absolute right-5 top-5 rounded-xl border border-blue-500 bg-white px-5 py-3 text-sm font-black text-blue-600 transition hover:bg-blue-600 hover:text-white xl:right-10 xl:top-8"
+        className="fixed right-5 top-5 z-10 rounded-xl border border-blue-500 bg-white px-5 py-3 text-sm font-black text-blue-600 transition hover:bg-blue-600 hover:text-white xl:right-10 xl:top-8"
       >
         관리자
       </Link>
 
-      <section className="w-full max-w-xs overflow-hidden rounded-2xl border border-slate-200 border-t-4 border-amber-400 bg-white shadow-md xl:w-[250px]">
-        <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
-          <div className="min-w-0">
-            <p className="text-xs font-black text-amber-600">{selectedDepartmentName || "가맹점"} 공지</p>
-            <p className="mt-1 truncate text-sm font-black text-slate-800">
-              {isLoadingAnnouncements
-                ? "공지를 불러오는 중"
-                : activeAnnouncement?.title ?? "현재 표시할 공지가 없습니다"}
-            </p>
-          </div>
-          {activeAnnouncement && (
-            <span className="shrink-0 rounded-lg bg-amber-50 px-2 py-1 text-xs font-black text-amber-700">
-              {announcementTypeLabels[activeAnnouncement.type]}
-            </span>
-          )}
-        </div>
-
-        {activeAnnouncement && (
-          <div className="max-h-56 overflow-y-auto px-4 py-3">
-            <p className="text-xs font-bold text-slate-400">
-              {activeAnnouncement.startDate} ~ {activeAnnouncement.endDate}
-            </p>
-            {activeAnnouncement.details && (
-              <p className="mt-2 whitespace-pre-wrap text-xs font-bold leading-5 text-slate-600">
-                {activeAnnouncement.details}
+      <div className="flex w-full max-w-[calc(100vw-2rem)] flex-col gap-4 sm:max-w-sm xl:w-[360px]">
+        <section className="w-full overflow-hidden rounded-2xl border border-slate-200 border-t-4 border-amber-400 bg-white shadow-md">
+          <div className="flex h-[68px] items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
+            <div className="min-w-0">
+              <p className="text-xs font-black text-amber-600">
+                {selectedDepartmentName || "가맹점"} 공지
               </p>
+              <p className="mt-1 truncate text-sm font-black text-slate-800">
+                {isLoadingAnnouncements
+                  ? "공지를 불러오는 중"
+                  : activeAnnouncement?.title ?? "현재 표시할 공지가 없습니다"}
+              </p>
+            </div>
+            {activeAnnouncement && (
+              <span className="shrink-0 rounded-lg bg-amber-50 px-2 py-1 text-xs font-black text-amber-700">
+                {announcementTypeLabels[activeAnnouncement.type]}
+              </span>
             )}
-            {activeAnnouncement.type === "award" && activeAnnouncement.awardStudents.length > 0 && (
-              <div className="mt-3 grid gap-2">
-                {activeAnnouncement.awardStudents.map((student) => (
-                  <div
-                    key={student.id}
-                    className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2 text-xs font-bold"
-                  >
-                    <span className="truncate text-slate-700">{student.studentName}</span>
-                    <span className="shrink-0 text-blue-600">{student.awardName}</span>
+          </div>
+
+          <div className="h-32 overflow-y-auto px-4 py-3">
+            {activeAnnouncement ? (
+              <>
+                <p className="text-xs font-bold text-slate-400">
+                  {activeAnnouncement.startDate} ~ {activeAnnouncement.endDate}
+                </p>
+                {activeAnnouncement.details && (
+                  <p className="mt-2 whitespace-pre-wrap text-xs font-bold leading-5 text-slate-600">
+                    {activeAnnouncement.details}
+                  </p>
+                )}
+                {activeAnnouncement.type === "award" && activeAnnouncement.awardStudents.length > 0 && (
+                  <div className="mt-3 grid gap-2">
+                    {activeAnnouncement.awardStudents.map((student) => (
+                      <div
+                        key={student.id}
+                        className="flex min-h-8 items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2 text-xs font-bold"
+                      >
+                        <span className="truncate text-slate-700">{student.studentName}</span>
+                        <span className="shrink-0 text-blue-600">{student.awardName}</span>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                )}
+              </>
+            ) : (
+              <div className="flex h-full items-center justify-center text-center text-xs font-bold text-slate-400">
+                현재 표시할 공지 내용이 없습니다
               </div>
             )}
           </div>
-        )}
 
-        {announcements.length > 1 && (
-          <div className="flex justify-center gap-2 border-t border-slate-100 px-4 py-2">
-            {announcements.map((announcement, index) => (
-              <button
-                key={announcement.id}
-                type="button"
-                aria-label={`${index + 1}번째 공지 보기`}
-                onClick={() => setActiveAnnouncementIndex(index)}
-                className={`h-2 w-2 rounded-full ${
-                  index === activeAnnouncementIndex ? "bg-amber-500" : "bg-slate-300"
-                }`}
-              />
-            ))}
+          <div className="flex h-9 items-center justify-center gap-2 border-t border-slate-100 px-4">
+            {announcements.length > 1 &&
+              announcements.map((announcement, index) => (
+                <button
+                  key={announcement.id}
+                  type="button"
+                  aria-label={`${index + 1}번째 공지 보기`}
+                  onClick={() => setActiveAnnouncementIndex(index)}
+                  className={`h-2 w-2 rounded-full ${
+                    index === activeAnnouncementIndex ? "bg-amber-500" : "bg-slate-300"
+                  }`}
+                />
+              ))}
           </div>
-        )}
-      </section>
+        </section>
 
-      <section className="flex w-full max-w-sm flex-col gap-3 xl:w-[320px]">
-        {rankingPanels.map((panel) => (
-          <div key={panel.id} className={`rounded-2xl border border-slate-200 border-t-4 ${panel.borderClass} bg-white p-4 shadow-md`}>
-            <h2 className="mb-3 text-center text-lg font-bold text-gray-800">
-              {panel.title}
+        <section className="hud-ranking-panel overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-md">
+          <div className={`hud-ranking-body border-l-4 ${activeRankingPanel.borderClass} p-4`}>
+            <h2 className="mb-3 flex h-7 items-center justify-center text-center text-lg font-bold text-gray-800">
+              <span className="hud-ranking-trophy" aria-hidden="true">🏆</span>
+              <span>{activeRankingPanel.title}</span>
+              <span className="hud-ranking-sparkle" aria-hidden="true">✦</span>
             </h2>
-            <ul className="flex flex-col gap-2">
+            <ul className="flex h-52 flex-col gap-2 overflow-y-auto">
               {isLoadingRankings ? (
-                <li className="rounded-xl bg-slate-50 p-3 text-center text-sm font-black text-slate-400">
+                <li className="hud-empty flex h-full items-center justify-center rounded-xl bg-slate-50 p-3 text-center text-sm font-black text-slate-400">
                   랭킹 불러오는 중
                 </li>
-              ) : panel.rows.length === 0 ? (
-                <li className="rounded-xl bg-slate-50 p-3 text-center text-sm font-black text-slate-400">
+              ) : activeRankingPanel.rows.length === 0 ? (
+                <li className="hud-empty flex h-full items-center justify-center rounded-xl bg-slate-50 p-3 text-center text-sm font-black text-slate-400">
                   표시할 학생이 없습니다
                 </li>
               ) : (
-                panel.rows.map((row, index) => (
+                activeRankingPanel.rows.map((row, index) => (
                   <li
                     key={row.id}
-                    className={`flex items-center justify-between gap-3 px-3 py-2 text-sm font-bold ${
-                      index === 0
-                        ? `rounded-xl ${panel.highlightClass}`
-                        : "border-b border-slate-100 text-gray-700"
+                    className={`hud-rank-row flex min-h-9 items-center justify-between gap-3 px-3 py-2 text-sm font-bold ${
+                      index === 0 ? `rounded-xl ${activeRankingPanel.highlightClass}` : ""
                     }`}
                   >
-                    <span className="min-w-0">
-                      <span className="mr-2">{index + 1}위</span>
-                      <span>{row.name}</span>
-                      <span className="ml-2 text-xs text-slate-400">{row.grade}</span>
+                    <span className="flex min-w-0 items-center gap-3">
+                      <span className={`hud-rank-medal hud-rank-medal-${Math.min(index + 1, 4)}`}>
+                        {index + 1}
+                      </span>
+                      <span className="min-w-0 truncate">
+                        <span className="hud-rank-name">{row.name}</span>
+                        <span className="hud-rank-grade ml-2 text-xs text-slate-400">{row.grade}</span>
+                      </span>
                     </span>
-                    <span className="shrink-0">{row.points.toLocaleString()} DP</span>
+                    <span className="hud-rank-points shrink-0">{row.points.toLocaleString()} DP</span>
                   </li>
                 ))
               )}
             </ul>
           </div>
-        ))}
-      </section>
+          <div className="flex justify-center gap-2 border-t border-slate-100 px-4 py-3">
+            {rankingPanels.map((panel, index) => (
+              <button
+                key={panel.id}
+                type="button"
+                aria-label={`${panel.title} 보기`}
+                onClick={() => setActiveRankingIndex(index)}
+                className={`hud-ranking-tab h-2 w-8 rounded-full ${
+                  index === activeRankingIndex ? "is-active bg-blue-600" : "bg-slate-300"
+                }`}
+              />
+            ))}
+          </div>
+        </section>
+      </div>
 
-      <section className="flex w-full max-w-xl flex-col items-center rounded-3xl border border-slate-200 bg-white p-6 shadow-xl xl:w-[520px]">
+      <section className="flex w-full max-w-[calc(100vw-2rem)] flex-col items-center rounded-3xl border border-slate-200 bg-white p-6 shadow-xl sm:max-w-xl xl:w-[520px]">
         <p className="mb-2 text-xs font-black text-orange-600">POINT SYSTEM</p>
         <h1 className="mb-2 text-3xl font-bold text-blue-600">학생 포인트 시스템</h1>
         <p className="mb-6 text-sm text-gray-500">학부모 전화번호 뒷자리를 입력해주세요</p>
@@ -409,9 +464,9 @@ export default function LobbyPage() {
             </div>
           )}
 
-          <div className="flex w-full items-end justify-center gap-4 rounded-3xl bg-slate-100/80 px-6 py-5 shadow-inner">
-            <span className="pb-1 text-4xl font-black tracking-wider text-slate-900">010</span>
-            <span className="pb-1 text-4xl font-black text-slate-400">-</span>
+          <div className="flex w-full min-w-0 items-end justify-center gap-2 rounded-3xl bg-slate-100/80 px-4 py-5 shadow-inner sm:gap-4 sm:px-6">
+            <span className="shrink-0 pb-1 text-3xl font-black text-slate-900 sm:text-4xl">010</span>
+            <span className="shrink-0 pb-1 text-3xl font-black text-slate-400 sm:text-4xl">-</span>
             <input
               type="tel"
               value={"*".repeat(phone.length)}
@@ -441,7 +496,7 @@ export default function LobbyPage() {
               maxLength={8}
               aria-label="학부모 전화번호 뒷자리"
               placeholder="12345678"
-              className="h-14 w-72 min-w-0 border-0 border-b-2 border-slate-300 bg-transparent px-1 text-center text-4xl font-black leading-none tracking-widest text-slate-900 caret-blue-600 outline-none transition placeholder:text-slate-300 focus:border-blue-500"
+              className="h-14 min-w-0 flex-1 border-0 border-b-2 border-slate-300 bg-transparent px-1 text-center text-3xl font-black leading-none text-slate-900 caret-blue-600 outline-none transition placeholder:text-slate-300 focus:border-blue-500 sm:text-4xl"
             />
           </div>
 
@@ -492,7 +547,7 @@ export default function LobbyPage() {
               {studentChoices.map((student) => (
                 <button
                   key={student.id}
-                  onClick={() => router.push(`/dashboard?studentId=${student.id}`)}
+                  onClick={() => enterStudentDashboard(student)}
                   className="flex w-full items-center justify-between rounded-2xl bg-slate-50 px-5 py-4 text-left transition hover:bg-blue-50"
                 >
                   <span>

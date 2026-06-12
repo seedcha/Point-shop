@@ -41,6 +41,17 @@ type Product = {
   image_url: string | null;
 };
 
+type StudentAchievement = {
+  id: string;
+  name: string;
+  rarity: string;
+  description: string;
+  imageUrl: string | null;
+  awardedAt: string;
+};
+
+const DEFAULT_BADGE_IMAGE = "/achievements/default-badge.png";
+
 const mypageTabs = [
   { id: "basic", label: "기본 정보" },
   { id: "points", label: "포인트 내역" },
@@ -81,6 +92,9 @@ function DashboardContent() {
   const [pointTransactions, setPointTransactions] = useState<PointTransaction[]>([]);
   const [purchases, setPurchases] = useState<PurchaseHistory[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [achievements, setAchievements] = useState<StudentAchievement[]>([]);
+  const [selectedAchievementId, setSelectedAchievementId] = useState("");
+  const [isSavingAchievement, setIsSavingAchievement] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [isPurchasing, setIsPurchasing] = useState(false);
   const [message, setMessage] = useState("");
@@ -109,6 +123,29 @@ function DashboardContent() {
     };
 
     loadStudent();
+  }, [studentId]);
+
+  useEffect(() => {
+    if (!studentId) {
+      return;
+    }
+
+    const loadAchievements = async () => {
+      const response = await fetch("/api/student/achievements");
+
+      if (!response.ok) {
+        return;
+      }
+
+      const payload = (await response.json()) as {
+        achievements?: StudentAchievement[];
+        selectedAchievementId?: string | null;
+      };
+      setAchievements(payload.achievements ?? []);
+      setSelectedAchievementId(payload.selectedAchievementId ?? "");
+    };
+
+    loadAchievements();
   }, [studentId]);
 
   useEffect(() => {
@@ -232,6 +269,29 @@ function DashboardContent() {
     setIsPurchasing(false);
   };
 
+  const handleAchievementChange = async (achievementId: string) => {
+    setIsSavingAchievement(true);
+    const response = await fetch("/api/student/achievements", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ achievementId: achievementId || null }),
+    });
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      setMessage(payload?.error ?? "대표 칭호를 변경하지 못했습니다.");
+      setIsSavingAchievement(false);
+      return;
+    }
+
+    setSelectedAchievementId(achievementId);
+    setMessage("대표 칭호를 변경했습니다.");
+    setIsSavingAchievement(false);
+  };
+
+  const selectedAchievement =
+    achievements.find((achievement) => achievement.id === selectedAchievementId) ?? null;
+
   return (
     <div className="flex min-h-screen flex-col bg-slate-50 lg:flex-row">
       <aside className="z-10 flex w-full flex-col border-b border-slate-200 bg-white lg:w-64 lg:border-b-0 lg:border-r">
@@ -244,7 +304,7 @@ function DashboardContent() {
           </h1>
         </div>
 
-        <nav className="grid grid-cols-2 gap-2 p-4 lg:flex-1 lg:grid-cols-1">
+        <nav className="grid grid-cols-2 content-start gap-2 p-4 lg:flex-1 lg:auto-rows-min lg:grid-cols-1">
           <button
             onClick={() => setActiveMenu("mypage")}
             className={`flex w-full items-center gap-4 rounded-xl border-b-2 px-6 py-4 font-bold transition-all ${
@@ -282,9 +342,19 @@ function DashboardContent() {
             <h2 className="text-3xl font-bold text-slate-800">
               {activeMenu === "mypage" ? "마이페이지" : "상점 입장"}
             </h2>
-            <p className="mt-1 font-medium text-slate-400">
-              {student ? `${student.name} 학생, 오늘도 즐겁게 배워봐요!` : statusMessage}
-            </p>
+            <div className="mt-2 flex items-center gap-3">
+              <p className="font-medium text-slate-400">
+                {student ? `${student.name} 학생, 오늘도 즐겁게 배워봐요!` : statusMessage}
+              </p>
+              {student && selectedAchievement && (
+                <img
+                  src={selectedAchievement.imageUrl || DEFAULT_BADGE_IMAGE}
+                  alt={`${selectedAchievement.name} 칭호`}
+                  title={selectedAchievement.name}
+                  className="h-11 w-11 rounded-lg border-2 border-amber-300 object-cover shadow-sm"
+                />
+              )}
+            </div>
           </div>
           <div className="flex items-center justify-between gap-4 rounded-3xl border border-slate-200 bg-white px-5 py-3 shadow-sm sm:justify-start sm:px-8 sm:py-4">
             <span className="font-bold text-slate-500">보유 포인트</span>
@@ -319,6 +389,47 @@ function DashboardContent() {
                   <InfoTile label="이름" value={student?.name ?? "-"} />
                   <InfoTile label="현재 포인트" value={`${(student?.points ?? 0).toLocaleString()} DP`} />
                   <InfoTile label="등록일" value={formatKoreaDate(student?.created_at)} />
+                </div>
+                <div className="mt-6 rounded-lg border border-slate-200 bg-slate-50 p-5">
+                  <label htmlFor="selected-achievement" className="text-sm font-black text-slate-600">
+                    대표 칭호
+                  </label>
+                  <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center">
+                    <select
+                      id="selected-achievement"
+                      value={selectedAchievementId}
+                      disabled={isSavingAchievement}
+                      onChange={(event) => handleAchievementChange(event.target.value)}
+                      className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-4 py-3 font-bold outline-none focus:border-blue-500 disabled:opacity-60"
+                    >
+                      <option value="">대표 칭호 사용 안 함</option>
+                      {achievements.map((achievement) => (
+                        <option key={achievement.id} value={achievement.id}>
+                          {achievement.name}
+                        </option>
+                      ))}
+                    </select>
+                    {selectedAchievement && (
+                      <div className="flex items-center gap-3">
+                        <img
+                          src={selectedAchievement.imageUrl || DEFAULT_BADGE_IMAGE}
+                          alt=""
+                          className="h-12 w-12 rounded-lg border border-slate-200 object-cover"
+                        />
+                        <div>
+                          <p className="font-black text-slate-800">{selectedAchievement.name}</p>
+                          <p className="text-xs font-bold text-slate-400">
+                            {selectedAchievement.description}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  {!achievements.length && (
+                    <p className="mt-3 text-sm font-bold text-slate-400">
+                      아직 보유한 칭호가 없습니다.
+                    </p>
+                  )}
                 </div>
               </div>
             )}
